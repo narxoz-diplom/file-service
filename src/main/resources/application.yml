@@ -51,9 +51,6 @@ keycloak:
   url: ${KEYCLOAK_URL:http://localhost:8080}
   realm: microservices-realm
   jwks-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8080/realms/microservices-realm/protocol/openid-connect/certs}
-  admin:
-    username: ${KEYCLOAK_ADMIN_USERNAME:admin}
-    password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
 
 management:
   endpoints:
