@@ -177,14 +177,36 @@ public class CourseService {
         return lessonRepository.findByCourseIdOrderByOrderNumber(courseId);
     }
 
+    public Lesson getLessonById(Long lessonId) {
+        return lessonRepository.findById(lessonId)
+                .orElseThrow(() -> new RuntimeException("Lesson not found with id: " + lessonId));
+    }
+
+    @Transactional
+    public Lesson updateLesson(Long lessonId, Lesson lesson) {
+        Lesson existing = getLessonById(lessonId);
+        existing.setTitle(lesson.getTitle());
+        existing.setDescription(lesson.getDescription());
+        existing.setContent(lesson.getContent());
+        existing.setOrderNumber(lesson.getOrderNumber());
+        existing.setUpdatedAt(LocalDateTime.now());
+        return lessonRepository.save(existing);
+    }
+
     @Transactional
     public Video createVideo(Video video) {
         log.info("Creating video: {} for lesson: {}", video.getTitle(), video.getLesson().getId());
+        // Если orderNumber не установлен, устанавливаем следующий номер
+        if (video.getOrderNumber() == null || video.getOrderNumber() == 0) {
+            List<Video> existingVideos = videoRepository.findByLessonIdOrderByOrderNumber(video.getLesson().getId());
+            int nextOrder = existingVideos.isEmpty() ? 1 : existingVideos.get(existingVideos.size() - 1).getOrderNumber() + 1;
+            video.setOrderNumber(nextOrder);
+        }
         return videoRepository.save(video);
     }
 
     public List<Video> getVideosByLesson(Long lessonId) {
-        return videoRepository.findByLessonId(lessonId);
+        return videoRepository.findByLessonIdOrderByOrderNumber(lessonId);
     }
 
     @Transactional

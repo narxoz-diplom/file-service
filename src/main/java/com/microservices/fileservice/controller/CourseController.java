@@ -11,6 +11,8 @@ import com.microservices.fileservice.service.MinioService;
 import com.microservices.fileservice.util.RoleUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -202,12 +204,38 @@ public class CourseController {
         return ResponseEntity.ok(lessons);
     }
 
+    @GetMapping("/lessons/{lessonId}")
+    public ResponseEntity<Lesson> getLesson(@PathVariable Long lessonId) {
+        try {
+            Lesson lesson = courseService.getLessonById(lessonId);
+            return ResponseEntity.ok(lesson);
+        } catch (RuntimeException e) {
+            log.error("Error getting lesson with id: {}", lessonId, e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    @PutMapping("/lessons/{lessonId}")
+    public ResponseEntity<Lesson> updateLesson(
+            @PathVariable Long lessonId,
+            @RequestBody Lesson lesson,
+            @AuthenticationPrincipal Jwt jwt) {
+        Lesson existing = courseService.getLessonById(lessonId);
+        Course course = existing.getCourse();
+        if (!RoleUtil.isAdmin(jwt) && !course.getInstructorId().equals(jwt.getSubject())) {
+            throw new AccessDeniedException("Only course instructor or admin can update lesson");
+        }
+        Lesson updated = courseService.updateLesson(lessonId, lesson);
+        return ResponseEntity.ok(updated);
+    }
+
     @PostMapping("/lessons/{lessonId}/videos")
     public ResponseEntity<Video> uploadVideo(
             @PathVariable Long lessonId,
             @RequestParam("file") MultipartFile file,
             @RequestParam("title") String title,
             @RequestParam(value = "description", required = false) String description,
+            @RequestParam(value = "orderNumber", required = false) Integer orderNumber,
             @AuthenticationPrincipal Jwt jwt) {
         if (!RoleUtil.canUpload(jwt)) {
             throw new AccessDeniedException("Only TEACHER and ADMIN can upload videos");
@@ -228,6 +256,7 @@ public class CourseController {
             video.setFileSize(file.getSize());
             video.setDuration(0); // TODO: Calculate duration
             video.setLesson(lesson);
+            video.setOrderNumber(orderNumber != null ? orderNumber : 0);
             video.setStatus(Video.VideoStatus.READY);
             
             Video created = courseService.createVideo(video);
@@ -244,15 +273,81 @@ public class CourseController {
     }
 
     @GetMapping("/videos/{objectName}/stream")
-    public ResponseEntity<org.springframework.core.io.InputStreamResource> streamVideo(
-            @PathVariable String objectName) {
+    public ResponseEntity<InputStreamResource> streamVideo(
+            @PathVariable String objectName,
+            @RequestHeader(value = "Range", required = false) String rangeHeader) {
         try {
-            InputStream inputStream = minioService.downloadFile(objectName);
-            return ResponseEntity.ok()
-                    .header("Content-Type", "video/mp4")
-                    .header("Accept-Ranges", "bytes")
-                    .body(new org.springframework.core.io.InputStreamResource(inputStream));
+            // Spring автоматически декодирует path variables
+            // Но если было двойное кодирование, пробуем декодировать еще раз
+            String decodedObjectName = objectName;
+            try {
+                // Пробуем декодировать, если не получится - используем исходное значение
+                String testDecode = java.net.URLDecoder.decode(objectName, java.nio.charset.StandardCharsets.UTF_8);
+                // Если декодирование изменило строку и она не содержит % - значит было кодирование
+                if (!testDecode.equals(objectName) && !testDecode.contains("%")) {
+                    decodedObjectName = testDecode;
+                }
+            } catch (Exception e) {
+                // Если ошибка декодирования - используем исходное значение
+                log.debug("Could not decode objectName, using original: {}", objectName);
+            }
+            
+            // Получаем информацию о файле
+            io.minio.StatObjectResponse statObject = minioService.getFileInfo(decodedObjectName);
+            long fileSize = statObject.size();
+            
+            // Определяем Content-Type из метаданных или по расширению
+            String contentType = statObject.contentType();
+            if (contentType == null || contentType.isEmpty()) {
+                // Пытаемся определить по имени файла
+                String fileName = objectName.toLowerCase();
+                if (fileName.endsWith(".mp4")) {
+                    contentType = "video/mp4";
+                } else if (fileName.endsWith(".webm")) {
+                    contentType = "video/webm";
+                } else if (fileName.endsWith(".ogg")) {
+                    contentType = "video/ogg";
+                } else {
+                    contentType = "video/mp4"; // По умолчанию
+                }
+            }
+            
+            // Обработка Range requests для поддержки стриминга
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                String[] ranges = rangeHeader.substring(6).split("-");
+                long rangeStart = Long.parseLong(ranges[0]);
+                long rangeEnd = ranges.length > 1 && !ranges[1].isEmpty() 
+                    ? Long.parseLong(ranges[1]) 
+                    : fileSize - 1;
+                
+                // Проверяем валидность диапазона
+                if (rangeStart < 0 || rangeEnd >= fileSize || rangeStart > rangeEnd) {
+                    return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            .header("Content-Range", "bytes */" + fileSize)
+                            .build();
+                }
+                
+                long contentLength = rangeEnd - rangeStart + 1;
+                InputStream inputStream = minioService.downloadFile(decodedObjectName, rangeStart, contentLength);
+                
+                return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                        .header("Content-Type", contentType)
+                        .header("Accept-Ranges", "bytes")
+                        .header("Content-Length", String.valueOf(contentLength))
+                        .header("Content-Range", 
+                            String.format("bytes %d-%d/%d", rangeStart, rangeEnd, fileSize))
+                        .body(new org.springframework.core.io.InputStreamResource(inputStream));
+            } else {
+                // Полный файл
+                InputStream inputStream = minioService.downloadFile(decodedObjectName);
+                return ResponseEntity.ok()
+                        .header("Content-Type", contentType)
+                        .header("Accept-Ranges", "bytes")
+                        .header("Content-Length", String.valueOf(fileSize))
+                        .body(new org.springframework.core.io.InputStreamResource(inputStream));
+            }
         } catch (Exception e) {
+            log.error("Error streaming video: {}", objectName, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

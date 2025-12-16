@@ -5,6 +5,13 @@ spring:
   application:
     name: file-service
   
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 2GB
+      max-request-size: 2GB
+      file-size-threshold: 10MB
+  
   jackson:
     serialization:
       write-dates-as-timestamps: false

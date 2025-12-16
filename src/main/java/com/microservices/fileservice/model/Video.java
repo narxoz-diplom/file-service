@@ -37,6 +37,9 @@ public class Video {
     @Column(nullable = false)
     private Integer duration; // Длительность в секундах
 
+    @Column(nullable = false)
+    private Integer orderNumber = 1; // Порядок видео в уроке
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "lesson_id", nullable = false)
     @JsonBackReference("lesson-videos")

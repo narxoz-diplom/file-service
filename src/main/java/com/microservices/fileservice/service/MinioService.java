@@ -67,6 +67,30 @@ public class MinioService {
                 .build());
     }
 
+    public InputStream downloadFile(String objectName, long offset, long length) throws ServerException, 
+            InsufficientDataException, ErrorResponseException, IOException, 
+            NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, 
+            XmlParserException, InternalException {
+        
+        return minioClient.getObject(GetObjectArgs.builder()
+                .bucket(minioConfig.getBucketName())
+                .object(objectName)
+                .offset(offset)
+                .length(length)
+                .build());
+    }
+
+    public io.minio.StatObjectResponse getFileInfo(String objectName) throws ServerException, 
+            InsufficientDataException, ErrorResponseException, IOException, 
+            NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, 
+            XmlParserException, InternalException {
+        
+        return minioClient.statObject(StatObjectArgs.builder()
+                .bucket(minioConfig.getBucketName())
+                .object(objectName)
+                .build());
+    }
+
     public void deleteFile(String objectName) throws ServerException, 
             InsufficientDataException, ErrorResponseException, IOException, 
             NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, 
