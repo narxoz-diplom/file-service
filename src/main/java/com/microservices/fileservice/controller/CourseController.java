@@ -360,6 +360,12 @@ public class CourseController {
         return ResponseEntity.ok().build();
     }
 
+    @GetMapping("/{id}/enrolls")
+    public ResponseEntity<Long> getEnrollCount(@PathVariable Long id) {
+        Long enrolls = courseService.getEnrollCount(id);
+        return ResponseEntity.ok(enrolls);
+    }
+
     @GetMapping("/{id}/views")
     public ResponseEntity<Long> getCourseViews(@PathVariable Long id) {
         String viewKey = "course:views:" + id;
@@ -395,5 +401,6 @@ public class CourseController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
+
 }
 
