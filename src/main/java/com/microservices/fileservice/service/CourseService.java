@@ -49,28 +49,22 @@ public class CourseService {
     public Course createCourse(Course course) {
         log.info("Creating course: {} by instructor: {}", course.getTitle(), course.getInstructorId());
         Course created = courseRepository.save(course);
-        
-        // Инвалидируем кеш опубликованных курсов
+
         cacheService.delete("courses:published");
         
         return created;
     }
 
-    // Не используем кеширование, так как Course содержит lazy-связанные сущности (lessons),
-    // которые не могут быть сериализованы в Redis
+
     public Course getCourseById(Long id) {
         Course course = courseRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Course not found with id: " + id));
-        // Инициализируем lazy коллекции для безопасного доступа
         if (course.getLessons() != null) {
-            course.getLessons().size(); // Force initialization
+            course.getLessons().size();
         }
         return course;
     }
 
-    /**
-     * Получить все опубликованные курсы с кешированием в Redis
-     */
     public List<Course> getAllPublishedCourses() {
         String cacheKey = "courses:published";
         
@@ -116,8 +110,7 @@ public class CourseService {
         existing.setImageUrl(course.getImageUrl());
         existing.setStatus(course.getStatus());
         Course updated = courseRepository.save(existing);
-        
-        // Инвалидируем кеш опубликованных курсов
+
         cacheService.delete("courses:published");
         
         return updated;
@@ -126,8 +119,7 @@ public class CourseService {
     @Transactional
     public void deleteCourse(Long id) {
         courseRepository.deleteById(id);
-        
-        // Инвалидируем кеш опубликованных курсов
+
         cacheService.delete("courses:published");
     }
 
@@ -212,11 +204,35 @@ public class CourseService {
     @Transactional
     public void enrollStudent(Long courseId, String studentId) {
         Course course = getCourseById(courseId);
+
         if (!course.getEnrolledStudents().contains(studentId)) {
             course.getEnrolledStudents().add(studentId);
             courseRepository.save(course);
+
+            sendEnrollNotification(studentId, course.getTitle(), courseId);
+
+            cacheService.increment("course:enrolls:" + courseId, 7, TimeUnit.DAYS);
+
             log.info("Student {} enrolled in course {}", studentId, courseId);
         }
+    }
+    private void sendEnrollNotification(String userId, String courseTitle, Long courseId) {
+        try {
+            Map<String, Object> notification = Map.of(
+                    "userId", userId,
+                    "message", "Вы успешно записались на курс: " + courseTitle,
+                    "type", "COURSE_ENROLL",
+                    "courseId", courseId.toString(),
+                    "timestamp", LocalDateTime.now().toString()
+            );
+            rabbitTemplate.convertAndSend("notification.queue", notification);
+        } catch (Exception e) {
+            log.error("Error sending enrollment notification to student {}: {}", userId, e.getMessage());
+        }
+    }
+
+    public Long getEnrollCount(Long courseId) {
+        return cacheService.getCounter("course:enrolls:" + courseId);
     }
 }
 
