@@ -74,7 +74,6 @@ public class FileController {
         String userId = jwt.getSubject();
         List<FileEntity> files;
         
-        // Админ может видеть все файлы, остальные - только свои
         if (RoleUtil.isAdmin(jwt)) {
             files = fileService.getAllFiles();
         } else {
@@ -92,7 +91,6 @@ public class FileController {
         }
         FileEntity file = fileService.getFileById(id);
         
-        // Клиент может видеть только свои файлы (если не админ)
         if (!RoleUtil.isAdmin(jwt) && !file.getUserId().equals(jwt.getSubject())) {
             throw new AccessDeniedException("You can only view your own files");
         }
@@ -110,11 +108,7 @@ public class FileController {
         try {
             FileEntity file = fileService.getFileById(id);
             String userId = jwt.getSubject();
-            
-            // Проверка доступа:
-            // 1. Админ может скачивать все файлы
-            // 2. Пользователь может скачивать свои файлы
-            // Примечание: проверка доступа к файлам уроков должна выполняться в course-service
+
             boolean canDownload = false;
             
             if (RoleUtil.isAdmin(jwt)) {
@@ -129,10 +123,8 @@ public class FileController {
             
             InputStream inputStream = fileService.downloadFile(id);
             
-            // Определяем правильный Content-Type
             String contentType = file.getContentType();
             if (contentType == null || contentType.isEmpty()) {
-                // Пытаемся определить по расширению файла
                 String fileName = file.getOriginalFileName().toLowerCase();
                 if (fileName.endsWith(".pdf")) {
                     contentType = "application/pdf";
@@ -159,7 +151,6 @@ public class FileController {
                 }
             }
             
-            // Правильная кодировка имени файла для Content-Disposition
             String encodedFileName = URLEncoder.encode(file.getOriginalFileName(), StandardCharsets.UTF_8)
                     .replace("+", "%20");
             
@@ -171,7 +162,6 @@ public class FileController {
             headers.add(HttpHeaders.PRAGMA, "no-cache");
             headers.add(HttpHeaders.EXPIRES, "0");
             
-            // Создаем InputStreamResource с указанием размера для правильной обработки
             InputStreamResource resource = new InputStreamResource(inputStream) {
                 @Override
                 public long contentLength() {
@@ -256,7 +246,6 @@ public class FileController {
             @PathVariable String objectName,
             @RequestHeader(value = "Range", required = false) String rangeHeader) {
         try {
-            // Spring автоматически декодирует path variables
             String decodedObjectName = objectName;
             try {
                 String testDecode = java.net.URLDecoder.decode(objectName, java.nio.charset.StandardCharsets.UTF_8);
@@ -267,11 +256,9 @@ public class FileController {
                 log.debug("Could not decode objectName, using original: {}", objectName);
             }
             
-            // Получаем информацию о файле
             io.minio.StatObjectResponse statObject = minioService.getFileInfo(decodedObjectName);
             long fileSize = statObject.size();
             
-            // Определяем Content-Type из метаданных или по расширению
             String contentType = statObject.contentType();
             if (contentType == null || contentType.isEmpty()) {
                 String fileName = objectName.toLowerCase();
@@ -282,11 +269,10 @@ public class FileController {
                 } else if (fileName.endsWith(".ogg")) {
                     contentType = "video/ogg";
                 } else {
-                    contentType = "video/mp4"; // По умолчанию
+                    contentType = "video/mp4";
                 }
             }
             
-            // Обработка Range requests для поддержки стриминга
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                 String[] ranges = rangeHeader.substring(6).split("-");
                 long rangeStart = Long.parseLong(ranges[0]);
@@ -294,7 +280,6 @@ public class FileController {
                     ? Long.parseLong(ranges[1]) 
                     : fileSize - 1;
                 
-                // Проверяем валидность диапазона
                 if (rangeStart < 0 || rangeEnd >= fileSize || rangeStart > rangeEnd) {
                     return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
                             .header("Content-Range", "bytes */" + fileSize)
@@ -312,7 +297,6 @@ public class FileController {
                             String.format("bytes %d-%d/%d", rangeStart, rangeEnd, fileSize))
                         .body(new org.springframework.core.io.InputStreamResource(inputStream));
             } else {
-                // Полный файл
                 InputStream inputStream = minioService.downloadFile(decodedObjectName);
                 return ResponseEntity.ok()
                         .header("Content-Type", contentType)

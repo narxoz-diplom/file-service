@@ -49,16 +49,13 @@ public class FileService {
         
         FileEntity saved = fileRepository.save(fileEntity);
         
-        // Send message to RabbitMQ for processing
         sendFileProcessingMessage(saved.getId(), objectName);
         
-        // Send notification message
         sendNotificationMessage(userId, "File uploaded successfully: " + file.getOriginalFilename());
         
         return saved;
     }
 
-    // Не используем кеширование для FileEntity, так как он может содержать lazy-связанные сущности (lesson)
     public FileEntity getFileById(Long id) {
         return fileRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("File not found with id: " + id));
@@ -84,22 +81,19 @@ public class FileService {
         fileEntity.setObjectName(objectName);
         fileEntity.setBucketName("files");
         fileEntity.setUserId(userId);
-        fileEntity.setLessonId(lessonId); // Привязываем файл к уроку через ID
+        fileEntity.setLessonId(lessonId);
         fileEntity.setUploadedAt(LocalDateTime.now());
         fileEntity.setStatus(FileEntity.FileStatus.UPLOADED);
         
         FileEntity saved = fileRepository.save(fileEntity);
         
-        // Send message to RabbitMQ for processing
         sendFileProcessingMessage(saved.getId(), objectName);
         
-        // Send notification message
         sendNotificationMessage(userId, "File uploaded to lesson: " + file.getOriginalFilename());
         
         return saved;
     }
 
-    // Не используем кеширование для списков файлов, так как FileEntity содержит lazy-связанные сущности
     public List<FileEntity> getFilesByUserId(String userId) {
         return fileRepository.findByUserId(userId);
     }

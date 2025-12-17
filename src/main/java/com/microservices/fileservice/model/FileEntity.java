@@ -40,7 +40,7 @@ public class FileEntity {
     private String userId;
 
     @Column
-    private Long lessonId; // ID урока, к которому привязан файл (опционально)
+    private Long lessonId;
 
     @Column(nullable = false)
     private LocalDateTime uploadedAt;
