@@ -1,6 +1,5 @@
 package com.microservices.fileservice.model;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -40,10 +39,8 @@ public class FileEntity {
     @Column(nullable = false)
     private String userId;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "lesson_id")
-    @JsonIgnore // Игнорируем обратную ссылку на урок для избежания циклической зависимости
-    private Lesson lesson; // Файл привязан к уроку
+    @Column
+    private Long lessonId; // ID урока, к которому привязан файл (опционально)
 
     @Column(nullable = false)
     private LocalDateTime uploadedAt;

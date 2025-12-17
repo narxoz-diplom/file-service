@@ -1,10 +1,8 @@
 package com.microservices.fileservice.controller;
 
-import com.microservices.fileservice.model.Course;
 import com.microservices.fileservice.model.FileEntity;
-import com.microservices.fileservice.model.Lesson;
-import com.microservices.fileservice.service.CourseService;
 import com.microservices.fileservice.service.FileService;
+import com.microservices.fileservice.service.MinioService;
 import com.microservices.fileservice.util.RoleUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -23,6 +21,7 @@ import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/files")
@@ -31,7 +30,7 @@ import java.util.List;
 public class FileController {
 
     private final FileService fileService;
-    private final CourseService courseService;
+    private final MinioService minioService;
 
     @PostMapping("/upload")
     public ResponseEntity<FileEntity> uploadFile(
@@ -45,6 +44,24 @@ public class FileController {
             FileEntity fileEntity = fileService.uploadFile(file, userId);
             return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
         } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping("/upload-to-lesson")
+    public ResponseEntity<FileEntity> uploadFileToLesson(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("lessonId") Long lessonId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload files to lessons");
+        }
+        try {
+            String userId = jwt.getSubject();
+            FileEntity fileEntity = fileService.uploadFileToLesson(file, userId, lessonId);
+            return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
+        } catch (Exception e) {
+            log.error("Error uploading file to lesson: {}", lessonId, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
@@ -97,24 +114,13 @@ public class FileController {
             // Проверка доступа:
             // 1. Админ может скачивать все файлы
             // 2. Пользователь может скачивать свои файлы
-            // 3. Если файл привязан к уроку, студент может скачивать файлы уроков курсов, на которые он записан
+            // Примечание: проверка доступа к файлам уроков должна выполняться в course-service
             boolean canDownload = false;
             
             if (RoleUtil.isAdmin(jwt)) {
                 canDownload = true;
             } else if (file.getUserId().equals(userId)) {
                 canDownload = true;
-            } else if (file.getLesson() != null) {
-                // Файл привязан к уроку - проверяем, записан ли студент на курс
-                Lesson lesson = file.getLesson();
-                Course course = lesson.getCourse();
-                if (course != null && course.getEnrolledStudents() != null) {
-                    canDownload = course.getEnrolledStudents().contains(userId);
-                }
-                // Также учитель курса может скачивать файлы
-                if (!canDownload && course != null && course.getInstructorId() != null) {
-                    canDownload = course.getInstructorId().equals(userId) || RoleUtil.isTeacher(jwt);
-                }
             }
             
             if (!canDownload) {
@@ -198,6 +204,124 @@ public class FileController {
             fileService.deleteFile(id, userId);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/lesson/{lessonId}")
+    public ResponseEntity<List<FileEntity>> getFilesByLessonId(
+            @PathVariable Long lessonId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canView(jwt)) {
+            throw new AccessDeniedException("Access denied");
+        }
+        try {
+            List<FileEntity> files = fileService.getFilesByLessonId(lessonId);
+            return ResponseEntity.ok(files);
+        } catch (Exception e) {
+            log.error("Error getting files for lesson: {}", lessonId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping("/upload-video")
+    public ResponseEntity<Map<String, Object>> uploadVideo(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "lessonId", required = false) Long lessonId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload videos");
+        }
+        try {
+            String userId = jwt.getSubject();
+            String objectName = minioService.uploadFile(file);
+            String videoUrl = "/api/files/videos/" + objectName + "/stream";
+            
+            Map<String, Object> response = new java.util.HashMap<>();
+            response.put("objectName", objectName);
+            response.put("videoUrl", videoUrl);
+            response.put("fileSize", file.getSize());
+            response.put("contentType", file.getContentType());
+            response.put("originalFileName", file.getOriginalFilename());
+            
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        } catch (Exception e) {
+            log.error("Error uploading video", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/videos/{objectName}/stream")
+    public ResponseEntity<InputStreamResource> streamVideo(
+            @PathVariable String objectName,
+            @RequestHeader(value = "Range", required = false) String rangeHeader) {
+        try {
+            // Spring автоматически декодирует path variables
+            String decodedObjectName = objectName;
+            try {
+                String testDecode = java.net.URLDecoder.decode(objectName, java.nio.charset.StandardCharsets.UTF_8);
+                if (!testDecode.equals(objectName) && !testDecode.contains("%")) {
+                    decodedObjectName = testDecode;
+                }
+            } catch (Exception e) {
+                log.debug("Could not decode objectName, using original: {}", objectName);
+            }
+            
+            // Получаем информацию о файле
+            io.minio.StatObjectResponse statObject = minioService.getFileInfo(decodedObjectName);
+            long fileSize = statObject.size();
+            
+            // Определяем Content-Type из метаданных или по расширению
+            String contentType = statObject.contentType();
+            if (contentType == null || contentType.isEmpty()) {
+                String fileName = objectName.toLowerCase();
+                if (fileName.endsWith(".mp4")) {
+                    contentType = "video/mp4";
+                } else if (fileName.endsWith(".webm")) {
+                    contentType = "video/webm";
+                } else if (fileName.endsWith(".ogg")) {
+                    contentType = "video/ogg";
+                } else {
+                    contentType = "video/mp4"; // По умолчанию
+                }
+            }
+            
+            // Обработка Range requests для поддержки стриминга
+            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
+                String[] ranges = rangeHeader.substring(6).split("-");
+                long rangeStart = Long.parseLong(ranges[0]);
+                long rangeEnd = ranges.length > 1 && !ranges[1].isEmpty() 
+                    ? Long.parseLong(ranges[1]) 
+                    : fileSize - 1;
+                
+                // Проверяем валидность диапазона
+                if (rangeStart < 0 || rangeEnd >= fileSize || rangeStart > rangeEnd) {
+                    return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                            .header("Content-Range", "bytes */" + fileSize)
+                            .build();
+                }
+                
+                long contentLength = rangeEnd - rangeStart + 1;
+                InputStream inputStream = minioService.downloadFile(decodedObjectName, rangeStart, contentLength);
+                
+                return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
+                        .header("Content-Type", contentType)
+                        .header("Accept-Ranges", "bytes")
+                        .header("Content-Length", String.valueOf(contentLength))
+                        .header("Content-Range", 
+                            String.format("bytes %d-%d/%d", rangeStart, rangeEnd, fileSize))
+                        .body(new org.springframework.core.io.InputStreamResource(inputStream));
+            } else {
+                // Полный файл
+                InputStream inputStream = minioService.downloadFile(decodedObjectName);
+                return ResponseEntity.ok()
+                        .header("Content-Type", contentType)
+                        .header("Accept-Ranges", "bytes")
+                        .header("Content-Length", String.valueOf(fileSize))
+                        .body(new org.springframework.core.io.InputStreamResource(inputStream));
+            }
+        } catch (Exception e) {
+            log.error("Error streaming video: {}", objectName, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

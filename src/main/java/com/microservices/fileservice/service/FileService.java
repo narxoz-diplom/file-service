@@ -1,9 +1,7 @@
 package com.microservices.fileservice.service;
 
 import com.microservices.fileservice.model.FileEntity;
-import com.microservices.fileservice.model.Lesson;
 import com.microservices.fileservice.repository.FileRepository;
-import com.microservices.fileservice.repository.LessonRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -23,7 +21,6 @@ import java.util.Map;
 public class FileService {
 
     private final FileRepository fileRepository;
-    private final LessonRepository lessonRepository;
     private final MinioService minioService;
     private final RabbitTemplate rabbitTemplate;
 
@@ -71,9 +68,6 @@ public class FileService {
     public FileEntity uploadFileToLesson(MultipartFile file, String userId, Long lessonId) throws IOException {
         log.info("Uploading file: {} for lesson: {} by user: {}", file.getOriginalFilename(), lessonId, userId);
         
-        Lesson lesson = lessonRepository.findById(lessonId)
-                .orElseThrow(() -> new RuntimeException("Lesson not found with id: " + lessonId));
-        
         String objectName;
         try {
             objectName = minioService.uploadFile(file);
@@ -90,7 +84,7 @@ public class FileService {
         fileEntity.setObjectName(objectName);
         fileEntity.setBucketName("files");
         fileEntity.setUserId(userId);
-        fileEntity.setLesson(lesson); // Привязываем файл к уроку
+        fileEntity.setLessonId(lessonId); // Привязываем файл к уроку через ID
         fileEntity.setUploadedAt(LocalDateTime.now());
         fileEntity.setStatus(FileEntity.FileStatus.UPLOADED);
         
