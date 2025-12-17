@@ -182,18 +182,38 @@ public class FileController {
         }
     }
 
+    @PutMapping("/{id}")
+    public ResponseEntity<FileEntity> updateFile(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> updateRequest,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can update files");
+        }
+        try {
+            String userId = jwt.getSubject();
+            String newFileName = updateRequest.get("originalFileName");
+            FileEntity updated = fileService.updateFile(id, userId, newFileName);
+            return ResponseEntity.ok(updated);
+        } catch (Exception e) {
+            log.error("Error updating file: {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteFile(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canDelete(jwt)) {
-            throw new AccessDeniedException("Only ADMIN role can delete files");
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can delete files");
         }
         try {
             String userId = jwt.getSubject();
             fileService.deleteFile(id, userId);
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
+            log.error("Error deleting file: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

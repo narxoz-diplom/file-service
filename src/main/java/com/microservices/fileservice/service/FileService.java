@@ -117,6 +117,25 @@ public class FileService {
     }
 
     @Transactional
+    public FileEntity updateFile(Long id, String userId, String newFileName) throws Exception {
+        FileEntity fileEntity = getFileById(id);
+        
+        if (!fileEntity.getUserId().equals(userId)) {
+            throw new RuntimeException("Unauthorized to update this file");
+        }
+        
+        if (newFileName != null && !newFileName.trim().isEmpty()) {
+            fileEntity.setOriginalFileName(newFileName);
+            fileEntity.setFileName(newFileName);
+        }
+        
+        FileEntity updated = fileRepository.save(fileEntity);
+        sendNotificationMessage(userId, "File updated: " + updated.getOriginalFileName());
+        
+        return updated;
+    }
+
+    @Transactional
     public void deleteFile(Long id, String userId) throws Exception {
         FileEntity fileEntity = getFileById(id);
         
