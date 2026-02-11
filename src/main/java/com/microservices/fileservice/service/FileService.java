@@ -1,5 +1,6 @@
 package com.microservices.fileservice.service;
 
+import com.microservices.fileservice.client.RagIngestClient;
 import com.microservices.fileservice.model.FileEntity;
 import com.microservices.fileservice.repository.FileRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +24,7 @@ public class FileService {
     private final FileRepository fileRepository;
     private final MinioService minioService;
     private final RabbitTemplate rabbitTemplate;
+    private final RagIngestClient ragIngestClient;
 
     @Transactional
     public FileEntity uploadFile(MultipartFile file, String userId) throws IOException {
@@ -50,6 +52,14 @@ public class FileService {
         FileEntity saved = fileRepository.save(fileEntity);
         
         sendFileProcessingMessage(saved.getId(), objectName);
+        
+        if (ragIngestClient.isEnabled()) {
+            try {
+                ragIngestClient.ingest(file, saved.getId(), null);
+            } catch (Exception e) {
+                log.warn("RAG ingest failed for file {}: {}", file.getOriginalFilename(), e.getMessage());
+            }
+        }
         
         sendNotificationMessage(userId, "File uploaded successfully: " + file.getOriginalFilename());
         
@@ -88,6 +98,14 @@ public class FileService {
         FileEntity saved = fileRepository.save(fileEntity);
         
         sendFileProcessingMessage(saved.getId(), objectName);
+        
+        if (ragIngestClient.isEnabled()) {
+            try {
+                ragIngestClient.ingest(file, saved.getId(), lessonId);
+            } catch (Exception e) {
+                log.warn("RAG ingest failed for file {} lesson {}: {}", file.getOriginalFilename(), lessonId, e.getMessage());
+            }
+        }
         
         sendNotificationMessage(userId, "File uploaded to lesson: " + file.getOriginalFilename());
         

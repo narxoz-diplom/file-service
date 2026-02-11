@@ -44,10 +44,13 @@ minio:
   secret-key: ${MINIO_SECRET_KEY:minioadmin}
   bucket-name: files
 
-keycloak:
-  url: ${KEYCLOAK_URL:http://localhost:8080}
-  realm: microservices-realm
-  jwks-uri: ${KEYCLOAK_JWKS_URI:http://localhost:8080/realms/microservices-realm/protocol/openid-connect/certs}
+# RAG service — при загрузке файлов/видео контент также отправляется в RAG для векторизации и генерации модулей/презентаций
+rag:
+  service:
+    url: ${RAG_SERVICE_URL:http://localhost:8000}
+
+jwt:
+  secret: ${JWT_SECRET:your-256-bit-secret-change-in-production-min-32-chars}
 
 management:
   endpoints:

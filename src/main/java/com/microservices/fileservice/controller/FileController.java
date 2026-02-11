@@ -1,5 +1,6 @@
 package com.microservices.fileservice.controller;
 
+import com.microservices.fileservice.client.RagIngestClient;
 import com.microservices.fileservice.model.FileEntity;
 import com.microservices.fileservice.service.FileService;
 import com.microservices.fileservice.service.MinioService;
@@ -31,6 +32,7 @@ public class FileController {
 
     private final FileService fileService;
     private final MinioService minioService;
+    private final RagIngestClient ragIngestClient;
 
     @PostMapping("/upload")
     public ResponseEntity<FileEntity> uploadFile(
@@ -243,9 +245,16 @@ public class FileController {
             throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload videos");
         }
         try {
-            String userId = jwt.getSubject();
             String objectName = minioService.uploadFile(file);
             String videoUrl = "/api/files/videos/" + objectName + "/stream";
+            
+            if (ragIngestClient.isEnabled()) {
+                try {
+                    ragIngestClient.ingest(file, null, lessonId);
+                } catch (Exception e) {
+                    log.warn("RAG ingest failed for video {}: {}", file.getOriginalFilename(), e.getMessage());
+                }
+            }
             
             Map<String, Object> response = new java.util.HashMap<>();
             response.put("objectName", objectName);
