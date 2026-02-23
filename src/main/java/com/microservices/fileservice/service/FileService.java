@@ -3,6 +3,7 @@ package com.microservices.fileservice.service;
 import com.microservices.fileservice.client.RagIngestClient;
 import com.microservices.fileservice.model.FileEntity;
 import com.microservices.fileservice.repository.FileRepository;
+import io.minio.errors.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -10,8 +11,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -113,7 +117,7 @@ public class FileService {
     }
 
     @Transactional
-    public FileEntity uploadFileToCourse(MultipartFile file, String userId, Long courseId) throws IOException {
+    public FileEntity uploadFileToCourse(MultipartFile file, String userId, Long courseId) throws IOException, ServerException, InsufficientDataException, ErrorResponseException, NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
         log.info("Uploading file: {} for course: {} by user: {}", file.getOriginalFilename(), courseId, userId);
         String objectName = minioService.uploadFile(file);
         FileEntity fileEntity = new FileEntity();
@@ -225,6 +229,83 @@ public class FileService {
         );
         rabbitTemplate.convertAndSend("notification.queue", notification);
         log.info("Notification sent to user: {}", userId);
+    }
+
+    /**
+     * Re-sync an existing file from MinIO to RAG (ChromaDB).
+     * Use when a file was uploaded before RAG was configured, or ingest failed.
+     */
+    public boolean syncFileToRag(Long fileId) throws Exception {
+        FileEntity fileEntity = getFileById(fileId);
+        if (!ragIngestClient.isEnabled()) {
+            log.warn("RAG service not configured, cannot sync file {}", fileId);
+            return false;
+        }
+        if (fileEntity.getCourseId() == null) {
+            log.warn("File {} is not associated with a course, will sync to default collection", fileId);
+        }
+        return doSyncFileToRag(fileEntity);
+    }
+
+    private boolean doSyncFileToRag(FileEntity fileEntity) throws Exception {
+        byte[] content;
+        try (InputStream is = minioService.downloadFile(fileEntity.getObjectName());
+             ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) {
+                bytes.write(buf, 0, n);
+            }
+            content = bytes.toByteArray();
+        }
+        String collectionName = fileEntity.getRagCollectionName();
+        if (collectionName == null) {
+            collectionName = fileEntity.getCourseId() != null ? "course_" + fileEntity.getCourseId()
+                    : fileEntity.getLessonId() != null ? "lesson_" + fileEntity.getLessonId()
+                    : "default";
+        }
+        Map<String, Object> meta = new java.util.HashMap<>();
+        meta.put("file_id", String.valueOf(fileEntity.getId()));
+        meta.put("source", "file-service-sync");
+        if (fileEntity.getCourseId() != null) {
+            meta.put("course_id", String.valueOf(fileEntity.getCourseId()));
+        }
+        if (fileEntity.getLessonId() != null) {
+            meta.put("lesson_id", String.valueOf(fileEntity.getLessonId()));
+        }
+        return ragIngestClient.ingestFromBytes(
+                content,
+                fileEntity.getOriginalFileName(),
+                collectionName,
+                meta
+        );
+    }
+
+    /**
+     * Sync all files of a course from MinIO to RAG (ChromaDB).
+     */
+    public Map<String, Object> syncCourseFilesToRag(Long courseId) throws Exception {
+        List<FileEntity> files = fileRepository.findByCourseId(courseId);
+        int synced = 0;
+        int failed = 0;
+        for (FileEntity f : files) {
+            try {
+                if (doSyncFileToRag(f)) {
+                    synced++;
+                } else {
+                    failed++;
+                }
+            } catch (Exception e) {
+                log.warn("Failed to sync file {} to RAG: {}", f.getId(), e.getMessage());
+                failed++;
+            }
+        }
+        return Map.of(
+                "courseId", courseId,
+                "total", files.size(),
+                "synced", synced,
+                "failed", failed
+        );
     }
 }
 

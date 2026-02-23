@@ -2,8 +2,7 @@ package com.microservices.fileservice.client;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.core.io.Resource;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
@@ -11,8 +10,6 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -67,6 +64,60 @@ public class RagIngestClient {
         return ingest(file, collectionName, meta);
     }
 
+    /**
+     * Ingest file from bytes (e.g. downloaded from MinIO) for RAG.
+     * Used when re-syncing existing files to ChromaDB.
+     */
+    public boolean ingestFromBytes(byte[] content, String filename, String collectionName, Map<String, Object> meta) {
+        if (!isEnabled()) {
+            log.debug("RAG service URL not set, skipping ingest");
+            return false;
+        }
+        if (content == null || content.length == 0) {
+            log.warn("Empty content, skipping RAG ingest: {}", filename);
+            return false;
+        }
+        if (filename == null) filename = "file";
+        String metadataJson = mapToJson(meta);
+
+        String finalFilename = filename;
+        ByteArrayResource fileResource = new ByteArrayResource(content) {
+            @Override
+            public String getFilename() {
+                return finalFilename;
+            }
+        };
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", fileResource);
+        body.add("metadata", metadataJson);
+        body.add("collection_name", collectionName);
+
+        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
+        String url = ragServiceUrl + INGEST_PATH;
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.POST,
+                    entity,
+                    String.class
+            );
+            if (response.getStatusCode().is2xxSuccessful()) {
+                log.info("RAG ingest (sync) successful for file: {}, collection: {}", filename, collectionName);
+                return true;
+            }
+            log.warn("RAG ingest (sync) returned {} for file: {}", response.getStatusCode(), filename);
+            return false;
+        } catch (Exception e) {
+            log.warn("RAG ingest (sync) failed for file: {}: {}", filename, e.getMessage());
+            return false;
+        }
+    }
+
     private boolean ingest(MultipartFile file, String collectionName, Map<String, Object> meta) {
         if (!isEnabled()) {
             log.debug("RAG service URL not set, skipping ingest");
@@ -79,11 +130,31 @@ public class RagIngestClient {
         if (filename == null) filename = "file";
         String metadataJson = mapToJson(meta);
 
+        byte[] bytes;
+        try {
+            bytes = file.getBytes();
+        } catch (Exception e) {
+            log.warn("Failed to read file bytes for RAG ingest: {}", e.getMessage());
+            return false;
+        }
+        if (bytes.length == 0) {
+            log.warn("File is empty, skipping RAG ingest: {}", filename);
+            return false;
+        }
+
+        String finalFilename = filename;
+        ByteArrayResource fileResource = new ByteArrayResource(bytes) {
+            @Override
+            public String getFilename() {
+                return finalFilename;
+            }
+        };
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("file", new MultipartFileResource(file, filename));
+        body.add("file", fileResource);
         body.add("metadata", metadataJson);
         body.add("collection_name", collectionName);
 
@@ -127,28 +198,4 @@ public class RagIngestClient {
         return sb.toString();
     }
 
-    /**
-     * Resource that wraps MultipartFile for RestTemplate, preserving filename.
-     */
-    private static final class MultipartFileResource extends InputStreamResource {
-        private final String filename;
-
-        MultipartFileResource(MultipartFile file, String filename) {
-            super(stream(file));
-            this.filename = filename;
-        }
-
-        private static InputStream stream(MultipartFile file) {
-            try {
-                return file.getInputStream();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-
-        @Override
-        public String getFilename() {
-            return filename;
-        }
-    }
 }

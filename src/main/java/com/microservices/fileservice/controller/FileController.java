@@ -77,6 +77,23 @@ public class FileController {
         return ResponseEntity.ok(fileService.getFilesByCourseId(courseId));
     }
 
+    @PostMapping("/course/{courseId}/sync-to-rag")
+    public ResponseEntity<Map<String, Object>> syncCourseFilesToRag(
+            @PathVariable Long courseId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can sync files to RAG");
+        }
+        try {
+            var result = fileService.syncCourseFilesToRag(courseId);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            log.error("Error syncing course {} files to RAG: {}", courseId, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("courseId", courseId, "synced", 0, "failed", 0, "error", e.getMessage()));
+        }
+    }
+
     @PostMapping("/upload-to-lesson")
     public ResponseEntity<FileEntity> uploadFileToLesson(
             @RequestParam("file") MultipartFile file,
@@ -244,6 +261,33 @@ public class FileController {
         } catch (Exception e) {
             log.error("Error deleting file: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping("/{id}/sync-to-rag")
+    public ResponseEntity<Map<String, Object>> syncFileToRag(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can sync files to RAG");
+        }
+        try {
+            FileEntity file = fileService.getFileById(id);
+            if (!RoleUtil.isAdmin(jwt) && !file.getUserId().equals(jwt.getSubject())) {
+                throw new AccessDeniedException("You can only sync your own files");
+            }
+            boolean success = fileService.syncFileToRag(id);
+            return ResponseEntity.ok(Map.of(
+                    "fileId", id,
+                    "synced", success,
+                    "message", success ? "File synced to RAG (ChromaDB)" : "RAG sync failed or RAG service not configured"
+            ));
+        } catch (AccessDeniedException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error syncing file {} to RAG: {}", id, e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("fileId", id, "synced", false, "error", e.getMessage()));
         }
     }
 
