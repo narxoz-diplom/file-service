@@ -50,6 +50,33 @@ public class FileController {
         }
     }
 
+    @PostMapping("/upload-to-course")
+    public ResponseEntity<FileEntity> uploadFileToCourse(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("courseId") Long courseId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload files to courses");
+        }
+        try {
+            FileEntity fileEntity = fileService.uploadFileToCourse(file, jwt.getSubject(), courseId);
+            return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
+        } catch (Exception e) {
+            log.error("Error uploading file to course: {}", courseId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/course/{courseId}")
+    public ResponseEntity<List<FileEntity>> getFilesByCourseId(
+            @PathVariable Long courseId,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canView(jwt)) {
+            throw new AccessDeniedException("Access denied");
+        }
+        return ResponseEntity.ok(fileService.getFilesByCourseId(courseId));
+    }
+
     @PostMapping("/upload-to-lesson")
     public ResponseEntity<FileEntity> uploadFileToLesson(
             @RequestParam("file") MultipartFile file,

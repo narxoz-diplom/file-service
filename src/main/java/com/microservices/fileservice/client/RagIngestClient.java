@@ -26,7 +26,7 @@ public class RagIngestClient {
     private final RestTemplate restTemplate;
     private final String ragServiceUrl;
 
-    private static final String INGEST_PATH = "/ingest";
+    private static final String INGEST_PATH = "/api/v1/ingest";
 
     public RagIngestClient(
             RestTemplate restTemplate,
@@ -48,6 +48,26 @@ public class RagIngestClient {
      * @return true если ingest успешен, false при отключённом RAG или ошибке
      */
     public boolean ingest(MultipartFile file, Long fileId, Long lessonId) {
+        String collectionName = lessonId != null ? "lesson_" + lessonId : "default";
+        Map<String, Object> meta = new HashMap<>();
+        if (fileId != null) meta.put("file_id", fileId);
+        if (lessonId != null) meta.put("lesson_id", lessonId);
+        meta.put("source", "file-service");
+        return ingest(file, collectionName, meta);
+    }
+
+    /**
+     * Ingest file to course collection for RAG (course_X, metadata: file_id, course_id).
+     */
+    public boolean ingestForCourse(MultipartFile file, String collectionName, Long courseId, Long fileId) {
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("course_id", String.valueOf(courseId));
+        meta.put("file_id", String.valueOf(fileId));
+        meta.put("source", "file-service");
+        return ingest(file, collectionName, meta);
+    }
+
+    private boolean ingest(MultipartFile file, String collectionName, Map<String, Object> meta) {
         if (!isEnabled()) {
             log.debug("RAG service URL not set, skipping ingest");
             return false;
@@ -56,18 +76,7 @@ public class RagIngestClient {
             return false;
         }
         String filename = file.getOriginalFilename();
-        if (filename == null) {
-            filename = "file";
-        }
-        String collectionName = lessonId != null ? "lesson_" + lessonId : "default";
-        Map<String, Object> meta = new HashMap<>();
-        if (fileId != null) {
-            meta.put("file_id", fileId);
-        }
-        if (lessonId != null) {
-            meta.put("lesson_id", lessonId);
-        }
-        meta.put("source", "file-service");
+        if (filename == null) filename = "file";
         String metadataJson = mapToJson(meta);
 
         HttpHeaders headers = new HttpHeaders();

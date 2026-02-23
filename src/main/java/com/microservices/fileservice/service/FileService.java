@@ -112,6 +112,40 @@ public class FileService {
         return saved;
     }
 
+    @Transactional
+    public FileEntity uploadFileToCourse(MultipartFile file, String userId, Long courseId) throws IOException {
+        log.info("Uploading file: {} for course: {} by user: {}", file.getOriginalFilename(), courseId, userId);
+        String objectName = minioService.uploadFile(file);
+        FileEntity fileEntity = new FileEntity();
+        fileEntity.setFileName(file.getOriginalFilename());
+        fileEntity.setOriginalFileName(file.getOriginalFilename());
+        fileEntity.setContentType(file.getContentType());
+        fileEntity.setFileSize(file.getSize());
+        fileEntity.setObjectName(objectName);
+        fileEntity.setBucketName("files");
+        fileEntity.setUserId(userId);
+        fileEntity.setCourseId(courseId);
+        fileEntity.setUploadedAt(LocalDateTime.now());
+        fileEntity.setStatus(FileEntity.FileStatus.UPLOADED);
+        FileEntity saved = fileRepository.save(fileEntity);
+        String collectionName = "course_" + courseId;
+        fileEntity.setRagCollectionName(collectionName);
+        saved = fileRepository.save(fileEntity);
+        sendNotificationMessage(userId, "File uploaded to course: " + file.getOriginalFilename());
+        if (ragIngestClient.isEnabled()) {
+            try {
+                ragIngestClient.ingestForCourse(file, collectionName, courseId, saved.getId());
+            } catch (Exception e) {
+                log.warn("RAG ingest failed for course file {}: {}", file.getOriginalFilename(), e.getMessage());
+            }
+        }
+        return saved;
+    }
+
+    public List<FileEntity> getFilesByCourseId(Long courseId) {
+        return fileRepository.findByCourseId(courseId);
+    }
+
     public List<FileEntity> getFilesByUserId(String userId) {
         return fileRepository.findByUserId(userId);
     }

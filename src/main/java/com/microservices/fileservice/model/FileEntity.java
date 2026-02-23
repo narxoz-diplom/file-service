@@ -42,6 +42,12 @@ public class FileEntity {
     @Column
     private Long lessonId;
 
+    @Column
+    private Long courseId;
+
+    @Column
+    private String ragCollectionName;
+
     @Column(nullable = false)
     private LocalDateTime uploadedAt;
 
