@@ -14,11 +14,19 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -144,6 +152,130 @@ public class FileService {
             }
         }
         return saved;
+    }
+
+    private static final int MAX_URL_FETCH_BYTES = 5_000_000;
+    private static final Pattern HTML_TAG = Pattern.compile("<[^>]+>");
+
+    /**
+     * Fetch a public http(s) page, extract text, store as .txt and ingest into the course RAG collection.
+     */
+    @Transactional
+    public FileEntity ingestUrlToCourse(String urlString, String userId, Long courseId)
+            throws IOException, ServerException, InsufficientDataException, ErrorResponseException,
+            NoSuchAlgorithmException, InvalidKeyException, InvalidResponseException, XmlParserException,
+            InternalException {
+        if (urlString == null || urlString.isBlank()) {
+            throw new IllegalArgumentException("URL is required");
+        }
+        URI uri;
+        try {
+            uri = URI.create(urlString.trim());
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Invalid URL", e);
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme()) && !"http".equalsIgnoreCase(uri.getScheme())) {
+            throw new IllegalArgumentException("Only http and https URLs are allowed");
+        }
+
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(15))
+                .build();
+        HttpRequest req = HttpRequest.newBuilder(uri)
+                .timeout(Duration.ofSeconds(30))
+                .header("User-Agent", "DiplomFileService/1.0")
+                .GET()
+                .build();
+        HttpResponse<byte[]> resp;
+        try {
+            resp = client.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("URL fetch interrupted", e);
+        }
+        if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+            throw new IOException("URL returned status " + resp.statusCode());
+        }
+        byte[] raw = resp.body();
+        if (raw == null || raw.length == 0) {
+            throw new IOException("Empty response from URL");
+        }
+        if (raw.length > MAX_URL_FETCH_BYTES) {
+            throw new IOException("Response too large (max " + MAX_URL_FETCH_BYTES + " bytes)");
+        }
+        String contentType = resp.headers().firstValue("Content-Type").orElse("").toLowerCase();
+        String text;
+        if (contentType.contains("html") || looksLikeHtml(raw)) {
+            text = htmlToText(new String(raw, StandardCharsets.UTF_8));
+        } else {
+            text = new String(raw, StandardCharsets.UTF_8);
+        }
+        text = text.strip();
+        if (text.length() > 2_000_000) {
+            text = text.substring(0, 2_000_000);
+        }
+        if (text.isBlank()) {
+            throw new IOException("No extractable text from URL");
+        }
+        byte[] outBytes = text.getBytes(StandardCharsets.UTF_8);
+        String path = uri.getPath();
+        String slug = (path != null && !path.isBlank() && !"/".equals(path))
+                ? path.replaceAll(".*/", "").replaceAll("[^a-zA-Z0-9._-]+", "-")
+                : "page";
+        if (slug.isBlank() || slug.length() > 80) {
+            slug = "page";
+        }
+        String filename = "url-" + slug + ".txt";
+        String objectName = minioService.uploadBytes(outBytes, "text/plain; charset=utf-8", filename);
+
+        FileEntity fileEntity = new FileEntity();
+        fileEntity.setFileName(filename);
+        fileEntity.setOriginalFileName(filename);
+        fileEntity.setContentType("text/plain; charset=utf-8");
+        fileEntity.setFileSize((long) outBytes.length);
+        fileEntity.setObjectName(objectName);
+        fileEntity.setBucketName("files");
+        fileEntity.setUserId(userId);
+        fileEntity.setCourseId(courseId);
+        fileEntity.setUploadedAt(LocalDateTime.now());
+        fileEntity.setStatus(FileEntity.FileStatus.UPLOADED);
+        FileEntity saved = fileRepository.save(fileEntity);
+        String collectionName = "course_" + courseId;
+        saved.setRagCollectionName(collectionName);
+        saved = fileRepository.save(saved);
+
+        sendNotificationMessage(userId, "URL ingested to course: " + urlString);
+        if (ragIngestClient.isEnabled()) {
+            Map<String, Object> meta = new HashMap<>();
+            meta.put("course_id", String.valueOf(courseId));
+            meta.put("file_id", String.valueOf(saved.getId()));
+            meta.put("source", "file-service");
+            meta.put("source_type", "external_url");
+            meta.put("source_url", urlString);
+            try {
+                ragIngestClient.ingestFromBytes(outBytes, filename, collectionName, meta);
+            } catch (Exception e) {
+                log.warn("RAG ingest failed for URL {}: {}", urlString, e.getMessage());
+            }
+        }
+        return saved;
+    }
+
+    private static boolean looksLikeHtml(byte[] raw) {
+        int n = Math.min(raw.length, 2000);
+        String head = new String(raw, 0, n, StandardCharsets.UTF_8);
+        return head.toLowerCase().contains("<html") || head.toLowerCase().contains("<!doctype html");
+    }
+
+    private static String htmlToText(String html) {
+        if (html == null) {
+            return "";
+        }
+        String s = html.replaceAll("(?is)<script[^>]*>.*?</script>", " ");
+        s = s.replaceAll("(?is)<style[^>]*>.*?</style>", " ");
+        s = HTML_TAG.matcher(s).replaceAll(" ");
+        return s.replaceAll("\\s+", " ").strip();
     }
 
     public List<FileEntity> getFilesByCourseId(Long courseId) {

@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.InvalidKeyException;
@@ -53,6 +54,22 @@ public class MinioService {
                 .build());
         
         log.info("File uploaded successfully: {}", objectName);
+        return objectName;
+    }
+
+    public String uploadBytes(byte[] data, String contentType, String originalFilename) throws IOException,
+            ServerException, InsufficientDataException, ErrorResponseException, NoSuchAlgorithmException,
+            InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
+        String safeName = originalFilename != null && !originalFilename.isBlank() ? originalFilename : "content.txt";
+        String objectName = UUID.randomUUID().toString() + "_" + safeName;
+        String ct = contentType != null && !contentType.isBlank() ? contentType : "application/octet-stream";
+        minioClient.putObject(PutObjectArgs.builder()
+                .bucket(minioConfig.getBucketName())
+                .object(objectName)
+                .stream(new ByteArrayInputStream(data), data.length, -1)
+                .contentType(ct)
+                .build());
+        log.info("Bytes uploaded successfully: {}", objectName);
         return objectName;
     }
 

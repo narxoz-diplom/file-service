@@ -1,6 +1,7 @@
 package com.microservices.fileservice.controller;
 
 import com.microservices.fileservice.client.RagIngestClient;
+import com.microservices.fileservice.dto.IngestUrlRequest;
 import com.microservices.fileservice.model.FileEntity;
 import com.microservices.fileservice.service.FileService;
 import com.microservices.fileservice.service.MinioService;
@@ -46,6 +47,25 @@ public class FileController {
             FileEntity fileEntity = fileService.uploadFile(file, userId);
             return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
         } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @PostMapping("/course/{courseId}/ingest-url")
+    public ResponseEntity<FileEntity> ingestUrlToCourse(
+            @PathVariable Long courseId,
+            @RequestBody IngestUrlRequest body,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canUpload(jwt)) {
+            throw new AccessDeniedException("Only ADMIN and TEACHER roles can ingest URLs");
+        }
+        try {
+            FileEntity saved = fileService.ingestUrlToCourse(body.getUrl(), jwt.getSubject(), courseId);
+            return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().build();
+        } catch (Exception e) {
+            log.error("ingest-url failed for course {}: {}", courseId, e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

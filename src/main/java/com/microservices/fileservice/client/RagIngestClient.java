@@ -22,14 +22,23 @@ public class RagIngestClient {
 
     private final RestTemplate restTemplate;
     private final String ragServiceUrl;
+    private final String ragApiKey;
 
     private static final String INGEST_PATH = "/api/v1/ingest";
 
     public RagIngestClient(
             RestTemplate restTemplate,
-            @Value("${rag.service.url:}") String ragServiceUrl) {
+            @Value("${rag.service.url:}") String ragServiceUrl,
+            @Value("${rag.service.api-key:}") String ragApiKey) {
         this.restTemplate = restTemplate;
         this.ragServiceUrl = ragServiceUrl == null ? "" : ragServiceUrl.trim();
+        this.ragApiKey = ragApiKey == null ? "" : ragApiKey.trim();
+    }
+
+    private void applyRagAuth(HttpHeaders headers) {
+        if (!ragApiKey.isEmpty()) {
+            headers.set("X-API-Key", ragApiKey);
+        }
     }
 
     public boolean isEnabled() {
@@ -47,8 +56,8 @@ public class RagIngestClient {
     public boolean ingest(MultipartFile file, Long fileId, Long lessonId) {
         String collectionName = lessonId != null ? "lesson_" + lessonId : "default";
         Map<String, Object> meta = new HashMap<>();
-        if (fileId != null) meta.put("file_id", fileId);
-        if (lessonId != null) meta.put("lesson_id", lessonId);
+        if (fileId != null) meta.put("file_id", String.valueOf(fileId));
+        if (lessonId != null) meta.put("lesson_id", String.valueOf(lessonId));
         meta.put("source", "file-service");
         return ingest(file, collectionName, meta);
     }
@@ -90,6 +99,7 @@ public class RagIngestClient {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        applyRagAuth(headers);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", fileResource);
@@ -152,6 +162,7 @@ public class RagIngestClient {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        applyRagAuth(headers);
 
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
         body.add("file", fileResource);
