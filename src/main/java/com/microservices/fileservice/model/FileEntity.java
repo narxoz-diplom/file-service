@@ -39,6 +39,9 @@ public class FileEntity {
     @Column(nullable = false)
     private String userId;
 
+    @Column(name = "is_public", nullable = false)
+    private boolean isPublic;
+
     @Column
     private Long lessonId;
 

@@ -51,6 +51,22 @@ public class FileController {
         }
     }
 
+    @PostMapping("/upload-news-image")
+    public ResponseEntity<FileEntity> uploadNewsImage(
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.isAdmin(jwt)) {
+            throw new AccessDeniedException("Only ADMIN can upload news images");
+        }
+        try {
+            FileEntity saved = fileService.uploadPublicNewsImage(file, jwt.getSubject());
+            return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+        } catch (Exception e) {
+            log.error("Error uploading news image", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
     @PostMapping("/course/{courseId}/ingest-url")
     public ResponseEntity<FileEntity> ingestUrlToCourse(
             @PathVariable Long courseId,
@@ -244,6 +260,44 @@ public class FileController {
             throw e;
         } catch (Exception e) {
             log.error("Error downloading file: {}", id, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    @GetMapping("/{id}/content")
+    public ResponseEntity<InputStreamResource> content(
+            @PathVariable Long id,
+            @AuthenticationPrincipal Jwt jwt) {
+        if (!RoleUtil.canView(jwt)) {
+            throw new AccessDeniedException("Access denied");
+        }
+        try {
+            FileEntity file = fileService.getFileById(id);
+            boolean allowed = file.isPublic()
+                    || RoleUtil.isAdmin(jwt)
+                    || file.getUserId().equals(jwt.getSubject());
+            if (!allowed) {
+                throw new AccessDeniedException("Access denied");
+            }
+
+            InputStream inputStream = fileService.downloadFile(id);
+            String contentType = file.getContentType() != null && !file.getContentType().isBlank()
+                    ? file.getContentType()
+                    : "application/octet-stream";
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.add(HttpHeaders.CACHE_CONTROL, "public, max-age=300");
+            headers.add(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getOriginalFileName() + "\"");
+
+            return ResponseEntity.ok()
+                    .headers(headers)
+                    .contentType(MediaType.parseMediaType(contentType))
+                    .contentLength(file.getFileSize())
+                    .body(new InputStreamResource(inputStream));
+        } catch (AccessDeniedException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error streaming file content: {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }

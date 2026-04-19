@@ -58,6 +58,7 @@ public class FileService {
         fileEntity.setObjectName(objectName);
         fileEntity.setBucketName("files");
         fileEntity.setUserId(userId);
+        fileEntity.setPublic(false);
         fileEntity.setUploadedAt(LocalDateTime.now());
         fileEntity.setStatus(FileEntity.FileStatus.UPLOADED);
         
@@ -75,6 +76,41 @@ public class FileService {
         
         sendNotificationMessage(userId, "File uploaded successfully: " + file.getOriginalFilename());
         
+        return saved;
+    }
+
+    @Transactional
+    public FileEntity uploadPublicNewsImage(MultipartFile file, String userId) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IOException("File is required");
+        }
+        String contentType = file.getContentType();
+        if (contentType == null || !contentType.toLowerCase().startsWith("image/")) {
+            throw new IOException("Only image/* files are allowed");
+        }
+
+        String objectName;
+        try {
+            objectName = minioService.uploadFile(file);
+        } catch (Exception e) {
+            log.error("Error uploading news image to MinIO", e);
+            throw new IOException("Failed to upload file to storage", e);
+        }
+
+        FileEntity fileEntity = new FileEntity();
+        fileEntity.setFileName(file.getOriginalFilename());
+        fileEntity.setOriginalFileName(file.getOriginalFilename());
+        fileEntity.setContentType(contentType);
+        fileEntity.setFileSize(file.getSize());
+        fileEntity.setObjectName(objectName);
+        fileEntity.setBucketName("files");
+        fileEntity.setUserId(userId);
+        fileEntity.setPublic(true);
+        fileEntity.setUploadedAt(LocalDateTime.now());
+        fileEntity.setStatus(FileEntity.FileStatus.UPLOADED);
+
+        FileEntity saved = fileRepository.save(fileEntity);
+        sendNotificationMessage(userId, "News image uploaded: " + file.getOriginalFilename());
         return saved;
     }
 
