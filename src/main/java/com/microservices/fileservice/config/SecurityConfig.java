@@ -20,6 +20,8 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
+                // Public streaming endpoints (images/news previews, etc.)
+                .requestMatchers("/api/files/*/content").permitAll()
                 .requestMatchers("/api/files/videos/**").permitAll()
                 .anyRequest().authenticated()
             )

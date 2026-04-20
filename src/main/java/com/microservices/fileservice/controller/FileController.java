@@ -268,14 +268,12 @@ public class FileController {
     public ResponseEntity<InputStreamResource> content(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canView(jwt)) {
-            throw new AccessDeniedException("Access denied");
-        }
         try {
             FileEntity file = fileService.getFileById(id);
+            // NOTE: <img src="..."> does not send Authorization header, so jwt can be null here.
+            // Public files are allowed without authentication; private files require JWT and permission.
             boolean allowed = file.isPublic()
-                    || RoleUtil.isAdmin(jwt)
-                    || file.getUserId().equals(jwt.getSubject());
+                    || (jwt != null && RoleUtil.canView(jwt) && (RoleUtil.isAdmin(jwt) || file.getUserId().equals(jwt.getSubject())));
             if (!allowed) {
                 throw new AccessDeniedException("Access denied");
             }
