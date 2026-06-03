@@ -1,4 +1,4 @@
-package com.microservices.fileservice.config;
+package com.microservices.fileservice.config.minio;
 
 import com.microservices.fileservice.service.MinioService;
 import jakarta.annotation.PostConstruct;

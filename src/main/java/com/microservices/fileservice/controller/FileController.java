@@ -1,485 +1,151 @@
 package com.microservices.fileservice.controller;
 
-import com.microservices.fileservice.client.RagIngestClient;
+import com.microservices.fileservice.dto.FileResponseDto;
 import com.microservices.fileservice.dto.IngestUrlRequest;
-import com.microservices.fileservice.model.FileEntity;
+import com.microservices.fileservice.dto.FileRagSyncResultDto;
+import com.microservices.fileservice.dto.RagSyncResultDto;
+import com.microservices.fileservice.dto.UpdateFileRequest;
+import com.microservices.fileservice.dto.VideoUploadResponseDto;
 import com.microservices.fileservice.service.FileService;
-import com.microservices.fileservice.service.MinioService;
-import com.microservices.fileservice.util.RoleUtil;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.InputStreamResource;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.InputStream;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 
 @RestController
-@RequestMapping("/api/files")
 @RequiredArgsConstructor
-@Slf4j
+@RequestMapping("/api/files")
 public class FileController {
 
     private final FileService fileService;
-    private final MinioService minioService;
-    private final RagIngestClient ragIngestClient;
 
     @PostMapping("/upload")
-    public ResponseEntity<FileEntity> uploadFile(
+    public ResponseEntity<FileResponseDto> uploadFile(
             @RequestParam("file") MultipartFile file,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload files");
-        }
-        try {
-            String userId = jwt.getSubject();
-            FileEntity fileEntity = fileService.uploadFile(file, userId);
-            return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadFile(file, jwt));
     }
 
     @PostMapping("/upload-news-image")
-    public ResponseEntity<FileEntity> uploadNewsImage(
+    public ResponseEntity<FileResponseDto> uploadNewsImage(
             @RequestParam("file") MultipartFile file,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.isAdmin(jwt)) {
-            throw new AccessDeniedException("Only ADMIN can upload news images");
-        }
-        try {
-            FileEntity saved = fileService.uploadPublicNewsImage(file, jwt.getSubject());
-            return ResponseEntity.status(HttpStatus.CREATED).body(saved);
-        } catch (Exception e) {
-            log.error("Error uploading news image", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadPublicNewsImage(file, jwt));
     }
 
     @PostMapping("/course/{courseId}/ingest-url")
-    public ResponseEntity<FileEntity> ingestUrlToCourse(
+    public ResponseEntity<FileResponseDto> ingestUrlToCourse(
             @PathVariable Long courseId,
             @RequestBody IngestUrlRequest body,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can ingest URLs");
-        }
-        try {
-            FileEntity saved = fileService.ingestUrlToCourse(body.getUrl(), jwt.getSubject(), courseId);
-            return ResponseEntity.status(HttpStatus.CREATED).body(saved);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().build();
-        } catch (Exception e) {
-            log.error("ingest-url failed for course {}: {}", courseId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(fileService.ingestUrlToCourse(body.getUrl(), jwt, courseId));
     }
 
     @PostMapping("/upload-to-course")
-    public ResponseEntity<FileEntity> uploadFileToCourse(
+    public ResponseEntity<FileResponseDto> uploadFileToCourse(
             @RequestParam("file") MultipartFile file,
             @RequestParam("courseId") Long courseId,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload files to courses");
-        }
-        try {
-            FileEntity fileEntity = fileService.uploadFileToCourse(file, jwt.getSubject(), courseId);
-            return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
-        } catch (Exception e) {
-            log.error("Error uploading file to course: {}", courseId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadFileToCourse(file, jwt, courseId));
     }
 
     @GetMapping("/course/{courseId}")
-    public ResponseEntity<List<FileEntity>> getFilesByCourseId(
+    public ResponseEntity<List<FileResponseDto>> getFilesByCourseId(
             @PathVariable Long courseId,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canView(jwt)) {
-            throw new AccessDeniedException("Access denied");
-        }
-        return ResponseEntity.ok(fileService.getFilesByCourseId(courseId));
+        return ResponseEntity.ok(fileService.getFilesByCourseId(jwt, courseId));
     }
 
     @PostMapping("/course/{courseId}/sync-to-rag")
-    public ResponseEntity<Map<String, Object>> syncCourseFilesToRag(
+    public ResponseEntity<RagSyncResultDto> syncCourseFilesToRag(
             @PathVariable Long courseId,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can sync files to RAG");
-        }
-        try {
-            var result = fileService.syncCourseFilesToRag(courseId);
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            log.error("Error syncing course {} files to RAG: {}", courseId, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("courseId", courseId, "synced", 0, "failed", 0, "error", e.getMessage()));
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.ok(fileService.syncCourseFilesToRag(jwt, courseId));
     }
 
     @PostMapping("/upload-to-lesson")
-    public ResponseEntity<FileEntity> uploadFileToLesson(
+    public ResponseEntity<FileResponseDto> uploadFileToLesson(
             @RequestParam("file") MultipartFile file,
             @RequestParam("lessonId") Long lessonId,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload files to lessons");
-        }
-        try {
-            String userId = jwt.getSubject();
-            FileEntity fileEntity = fileService.uploadFileToLesson(file, userId, lessonId);
-            return ResponseEntity.status(HttpStatus.CREATED).body(fileEntity);
-        } catch (Exception e) {
-            log.error("Error uploading file to lesson: {}", lessonId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadFileToLesson(file, jwt, lessonId));
     }
 
     @GetMapping
-    public ResponseEntity<List<FileEntity>> getUserFiles(@AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canView(jwt)) {
-            throw new AccessDeniedException("Access denied");
-        }
-        String userId = jwt.getSubject();
-        List<FileEntity> files;
-        
-        if (RoleUtil.isAdmin(jwt)) {
-            files = fileService.getAllFiles();
-        } else {
-            files = fileService.getFilesByUserId(userId);
-        }
-        return ResponseEntity.ok(files);
+    public ResponseEntity<List<FileResponseDto>> getUserFiles(@AuthenticationPrincipal Jwt jwt) {
+        return ResponseEntity.ok(fileService.getUserFiles(jwt));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<FileEntity> getFile(
+    public ResponseEntity<FileResponseDto> getFile(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canView(jwt)) {
-            throw new AccessDeniedException("Access denied");
-        }
-        FileEntity file = fileService.getFileById(id);
-        
-        if (!RoleUtil.isAdmin(jwt) && !file.getUserId().equals(jwt.getSubject())) {
-            throw new AccessDeniedException("You can only view your own files");
-        }
-        
-        return ResponseEntity.ok(file);
+        return ResponseEntity.ok(fileService.getFile(id, jwt));
     }
 
     @GetMapping("/{id}/download")
     public ResponseEntity<InputStreamResource> downloadFile(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canView(jwt)) {
-            throw new AccessDeniedException("Access denied");
-        }
-        try {
-            FileEntity file = fileService.getFileById(id);
-            String userId = jwt.getSubject();
-
-            boolean canDownload = false;
-            
-            if (RoleUtil.isAdmin(jwt)) {
-                canDownload = true;
-            } else if (file.getUserId().equals(userId)) {
-                canDownload = true;
-            }
-            
-            if (!canDownload) {
-                throw new AccessDeniedException("You don't have permission to download this file");
-            }
-            
-            InputStream inputStream = fileService.downloadFile(id);
-            
-            String contentType = file.getContentType();
-            if (contentType == null || contentType.isEmpty()) {
-                String fileName = file.getOriginalFileName().toLowerCase();
-                if (fileName.endsWith(".pdf")) {
-                    contentType = "application/pdf";
-                } else if (fileName.endsWith(".doc") || fileName.endsWith(".docx")) {
-                    contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-                    if (fileName.endsWith(".doc")) {
-                        contentType = "application/msword";
-                    }
-                } else if (fileName.endsWith(".xls") || fileName.endsWith(".xlsx")) {
-                    contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-                    if (fileName.endsWith(".xls")) {
-                        contentType = "application/vnd.ms-excel";
-                    }
-                } else if (fileName.endsWith(".zip")) {
-                    contentType = "application/zip";
-                } else if (fileName.endsWith(".txt")) {
-                    contentType = "text/plain";
-                } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
-                    contentType = "image/jpeg";
-                } else if (fileName.endsWith(".png")) {
-                    contentType = "image/png";
-                } else {
-                    contentType = "application/octet-stream";
-                }
-            }
-            
-            String encodedFileName = URLEncoder.encode(file.getOriginalFileName(), StandardCharsets.UTF_8)
-                    .replace("+", "%20");
-            
-            HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.CONTENT_DISPOSITION, 
-                    "attachment; filename=\"" + file.getOriginalFileName() + "\"; filename*=UTF-8''" + encodedFileName);
-            headers.add(HttpHeaders.CONTENT_LENGTH, String.valueOf(file.getFileSize()));
-            headers.add(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate");
-            headers.add(HttpHeaders.PRAGMA, "no-cache");
-            headers.add(HttpHeaders.EXPIRES, "0");
-            
-            InputStreamResource resource = new InputStreamResource(inputStream) {
-                @Override
-                public long contentLength() {
-                    return file.getFileSize();
-                }
-            };
-            
-            return ResponseEntity.ok()
-                    .headers(headers)
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .contentLength(file.getFileSize())
-                    .body(resource);
-        } catch (AccessDeniedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Error downloading file: {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return fileService.downloadFile(id, jwt);
     }
 
     @GetMapping("/{id}/content")
     public ResponseEntity<InputStreamResource> content(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
-        try {
-            FileEntity file = fileService.getFileById(id);
-            // NOTE: <img src="..."> does not send Authorization header, so jwt can be null here.
-            // Public files are allowed without authentication; private files require JWT and permission.
-            boolean allowed = file.isPublic()
-                    || (jwt != null && RoleUtil.canView(jwt) && (RoleUtil.isAdmin(jwt) || file.getUserId().equals(jwt.getSubject())));
-            if (!allowed) {
-                throw new AccessDeniedException("Access denied");
-            }
-
-            InputStream inputStream = fileService.downloadFile(id);
-            String contentType = file.getContentType() != null && !file.getContentType().isBlank()
-                    ? file.getContentType()
-                    : "application/octet-stream";
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.CACHE_CONTROL, "public, max-age=300");
-            headers.add(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getOriginalFileName() + "\"");
-
-            return ResponseEntity.ok()
-                    .headers(headers)
-                    .contentType(MediaType.parseMediaType(contentType))
-                    .contentLength(file.getFileSize())
-                    .body(new InputStreamResource(inputStream));
-        } catch (AccessDeniedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Error streaming file content: {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return fileService.streamFileContent(id, jwt);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<FileEntity> updateFile(
+    public ResponseEntity<FileResponseDto> updateFile(
             @PathVariable Long id,
-            @RequestBody Map<String, String> updateRequest,
+            @RequestBody UpdateFileRequest updateRequest,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can update files");
-        }
-        try {
-            String userId = jwt.getSubject();
-            String newFileName = updateRequest.get("originalFileName");
-            FileEntity updated = fileService.updateFile(id, userId, newFileName);
-            return ResponseEntity.ok(updated);
-        } catch (Exception e) {
-            log.error("Error updating file: {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return ResponseEntity.ok(fileService.updateFile(id, jwt, updateRequest));
     }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteFile(
             @PathVariable Long id,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can delete files");
-        }
-        try {
-            String userId = jwt.getSubject();
-            fileService.deleteFile(id, userId);
-            return ResponseEntity.noContent().build();
-        } catch (Exception e) {
-            log.error("Error deleting file: {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        fileService.deleteFile(id, jwt);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/sync-to-rag")
-    public ResponseEntity<Map<String, Object>> syncFileToRag(
+    public ResponseEntity<FileRagSyncResultDto> syncFileToRag(
             @PathVariable Long id,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can sync files to RAG");
-        }
-        try {
-            FileEntity file = fileService.getFileById(id);
-            if (!RoleUtil.isAdmin(jwt) && !file.getUserId().equals(jwt.getSubject())) {
-                throw new AccessDeniedException("You can only sync your own files");
-            }
-            boolean success = fileService.syncFileToRag(id);
-            return ResponseEntity.ok(Map.of(
-                    "fileId", id,
-                    "synced", success,
-                    "message", success ? "File synced to RAG (ChromaDB)" : "RAG sync failed or RAG service not configured"
-            ));
-        } catch (AccessDeniedException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Error syncing file {} to RAG: {}", id, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("fileId", id, "synced", false, "error", e.getMessage()));
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.ok(fileService.syncFileToRag(id, jwt));
     }
 
     @GetMapping("/lesson/{lessonId}")
-    public ResponseEntity<List<FileEntity>> getFilesByLessonId(
+    public ResponseEntity<List<FileResponseDto>> getFilesByLessonId(
             @PathVariable Long lessonId,
             @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canView(jwt)) {
-            throw new AccessDeniedException("Access denied");
-        }
-        try {
-            List<FileEntity> files = fileService.getFilesByLessonId(lessonId);
-            return ResponseEntity.ok(files);
-        } catch (Exception e) {
-            log.error("Error getting files for lesson: {}", lessonId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+        return ResponseEntity.ok(fileService.getFilesByLessonId(jwt, lessonId));
     }
 
     @PostMapping("/upload-video")
-    public ResponseEntity<Map<String, Object>> uploadVideo(
+    public ResponseEntity<VideoUploadResponseDto> uploadVideo(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "lessonId", required = false) Long lessonId,
-            @AuthenticationPrincipal Jwt jwt) {
-        if (!RoleUtil.canUpload(jwt)) {
-            throw new AccessDeniedException("Only ADMIN and TEACHER roles can upload videos");
-        }
-        try {
-            String objectName = minioService.uploadFile(file);
-            String videoUrl = "/api/files/videos/" + objectName + "/stream";
-            
-            if (ragIngestClient.isEnabled()) {
-                try {
-                    ragIngestClient.ingest(file, null, lessonId);
-                } catch (Exception e) {
-                    log.warn("RAG ingest failed for video {}: {}", file.getOriginalFilename(), e.getMessage());
-                }
-            }
-            
-            Map<String, Object> response = new java.util.HashMap<>();
-            response.put("objectName", objectName);
-            response.put("videoUrl", videoUrl);
-            response.put("fileSize", file.getSize());
-            response.put("contentType", file.getContentType());
-            response.put("originalFileName", file.getOriginalFilename());
-            
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
-        } catch (Exception e) {
-            log.error("Error uploading video", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadVideo(file, lessonId, jwt));
     }
 
     @GetMapping("/videos/{objectName}/stream")
     public ResponseEntity<InputStreamResource> streamVideo(
             @PathVariable String objectName,
-            @RequestHeader(value = "Range", required = false) String rangeHeader) {
-        try {
-            String decodedObjectName = objectName;
-            try {
-                String testDecode = java.net.URLDecoder.decode(objectName, java.nio.charset.StandardCharsets.UTF_8);
-                if (!testDecode.equals(objectName) && !testDecode.contains("%")) {
-                    decodedObjectName = testDecode;
-                }
-            } catch (Exception e) {
-                log.debug("Could not decode objectName, using original: {}", objectName);
-            }
-            
-            io.minio.StatObjectResponse statObject = minioService.getFileInfo(decodedObjectName);
-            long fileSize = statObject.size();
-            
-            String contentType = statObject.contentType();
-            if (contentType == null || contentType.isEmpty()) {
-                String fileName = objectName.toLowerCase();
-                if (fileName.endsWith(".mp4")) {
-                    contentType = "video/mp4";
-                } else if (fileName.endsWith(".webm")) {
-                    contentType = "video/webm";
-                } else if (fileName.endsWith(".ogg")) {
-                    contentType = "video/ogg";
-                } else {
-                    contentType = "video/mp4";
-                }
-            }
-            
-            if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
-                String[] ranges = rangeHeader.substring(6).split("-");
-                long rangeStart = Long.parseLong(ranges[0]);
-                long rangeEnd = ranges.length > 1 && !ranges[1].isEmpty() 
-                    ? Long.parseLong(ranges[1]) 
-                    : fileSize - 1;
-                
-                if (rangeStart < 0 || rangeEnd >= fileSize || rangeStart > rangeEnd) {
-                    return ResponseEntity.status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
-                            .header("Content-Range", "bytes */" + fileSize)
-                            .build();
-                }
-                
-                long contentLength = rangeEnd - rangeStart + 1;
-                InputStream inputStream = minioService.downloadFile(decodedObjectName, rangeStart, contentLength);
-                
-                return ResponseEntity.status(HttpStatus.PARTIAL_CONTENT)
-                        .header("Content-Type", contentType)
-                        .header("Accept-Ranges", "bytes")
-                        .header("Content-Length", String.valueOf(contentLength))
-                        .header("Content-Range", 
-                            String.format("bytes %d-%d/%d", rangeStart, rangeEnd, fileSize))
-                        .body(new org.springframework.core.io.InputStreamResource(inputStream));
-            } else {
-                InputStream inputStream = minioService.downloadFile(decodedObjectName);
-                return ResponseEntity.ok()
-                        .header("Content-Type", contentType)
-                        .header("Accept-Ranges", "bytes")
-                        .header("Content-Length", String.valueOf(fileSize))
-                        .body(new org.springframework.core.io.InputStreamResource(inputStream));
-            }
-        } catch (Exception e) {
-            log.error("Error streaming video: {}", objectName, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+            @RequestHeader(value = "Range", required = false) String rangeHeader) throws Exception {
+        return fileService.streamVideo(objectName, rangeHeader);
     }
 }
-

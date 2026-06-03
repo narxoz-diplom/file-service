@@ -1,6 +1,7 @@
 package com.microservices.fileservice.service;
 
-import com.microservices.fileservice.config.MinioConfig;
+import com.microservices.fileservice.config.minio.MinioConfig;
+import com.microservices.fileservice.util.ObjectNameSanitizer;
 import io.minio.*;
 import io.minio.errors.*;
 import lombok.RequiredArgsConstructor;
@@ -13,8 +14,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.UUID;
-
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -44,7 +43,7 @@ public class MinioService {
             InvalidKeyException, InvalidResponseException, XmlParserException, 
             InternalException {
         
-        String objectName = UUID.randomUUID().toString() + "_" + file.getOriginalFilename();
+        String objectName = ObjectNameSanitizer.toStorageKey(file.getOriginalFilename());
         
         minioClient.putObject(PutObjectArgs.builder()
                 .bucket(minioConfig.getBucketName())
@@ -61,7 +60,7 @@ public class MinioService {
             ServerException, InsufficientDataException, ErrorResponseException, NoSuchAlgorithmException,
             InvalidKeyException, InvalidResponseException, XmlParserException, InternalException {
         String safeName = originalFilename != null && !originalFilename.isBlank() ? originalFilename : "content.txt";
-        String objectName = UUID.randomUUID().toString() + "_" + safeName;
+        String objectName = ObjectNameSanitizer.toStorageKey(safeName);
         String ct = contentType != null && !contentType.isBlank() ? contentType : "application/octet-stream";
         minioClient.putObject(PutObjectArgs.builder()
                 .bucket(minioConfig.getBucketName())

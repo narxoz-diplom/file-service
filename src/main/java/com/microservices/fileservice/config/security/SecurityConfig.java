@@ -1,4 +1,4 @@
-package com.microservices.fileservice.config;
+package com.microservices.fileservice.config.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

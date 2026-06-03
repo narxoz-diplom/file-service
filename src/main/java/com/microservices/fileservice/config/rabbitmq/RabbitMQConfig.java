@@ -1,4 +1,4 @@
-package com.microservices.fileservice.config;
+package com.microservices.fileservice.config.rabbitmq;
 
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;

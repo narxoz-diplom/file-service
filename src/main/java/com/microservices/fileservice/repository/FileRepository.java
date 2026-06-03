@@ -9,10 +9,15 @@ import java.util.Optional;
 
 @Repository
 public interface FileRepository extends JpaRepository<FileEntity, Long> {
+
     List<FileEntity> findByUserId(String userId);
+
     List<FileEntity> findByLessonId(Long lessonId);
+
     List<FileEntity> findByCourseId(Long courseId);
+
     Optional<FileEntity> findByObjectName(String objectName);
+
     void deleteByObjectName(String objectName);
 }
 

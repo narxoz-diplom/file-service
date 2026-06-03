@@ -1,4 +1,4 @@
-package com.microservices.fileservice.config;
+package com.microservices.fileservice.config.minio;
 
 import io.minio.MinioClient;
 import lombok.Getter;

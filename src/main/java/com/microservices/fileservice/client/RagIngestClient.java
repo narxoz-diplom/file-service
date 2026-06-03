@@ -13,9 +13,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Клиент для отправки загруженных файлов в RAG-сервис для векторизации и создания презентаций/модулей.
- */
 @Component
 @Slf4j
 public class RagIngestClient {
@@ -45,14 +42,6 @@ public class RagIngestClient {
         return !ragServiceUrl.isEmpty();
     }
 
-    /**
-     * Отправляет файл в RAG-сервис для индексации (векторизация, возможность генерации модулей/презентаций).
-     *
-     * @param file     загружаемый файл (видео, аудио, PDF, DOCX, изображение)
-     * @param fileId   id файла в БД (может быть null для видео без записи в files)
-     * @param lessonId id урока (опционально)
-     * @return true если ingest успешен, false при отключённом RAG или ошибке
-     */
     public boolean ingest(MultipartFile file, Long fileId, Long lessonId) {
         String collectionName = lessonId != null ? "lesson_" + lessonId : "default";
         Map<String, Object> meta = new HashMap<>();
@@ -62,9 +51,6 @@ public class RagIngestClient {
         return ingest(file, collectionName, meta);
     }
 
-    /**
-     * Ingest file to course collection for RAG (course_X, metadata: file_id, course_id).
-     */
     public boolean ingestForCourse(MultipartFile file, String collectionName, Long courseId, Long fileId) {
         Map<String, Object> meta = new HashMap<>();
         meta.put("course_id", String.valueOf(courseId));
@@ -73,10 +59,6 @@ public class RagIngestClient {
         return ingest(file, collectionName, meta);
     }
 
-    /**
-     * Ingest file from bytes (e.g. downloaded from MinIO) for RAG.
-     * Used when re-syncing existing files to ChromaDB.
-     */
     public boolean ingestFromBytes(byte[] content, String filename, String collectionName, Map<String, Object> meta) {
         if (!isEnabled()) {
             log.debug("RAG service URL not set, skipping ingest");

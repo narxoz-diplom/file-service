@@ -1,4 +1,4 @@
-package com.microservices.fileservice.config;
+package com.microservices.fileservice.config.rag;
 
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;

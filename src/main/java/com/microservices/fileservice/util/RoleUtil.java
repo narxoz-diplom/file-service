@@ -64,19 +64,6 @@ public class RoleUtil {
         return List.of();
     }
 
-    public static boolean hasRole(Jwt jwt, String role) {
-        List<String> roles = getRoles(jwt);
-        if (roles.isEmpty()) {
-            return false;
-        }
-        
-        String roleLower = role.toLowerCase().replace("role_", "");
-        return roles.stream()
-                .anyMatch(r -> r.equalsIgnoreCase(role) || 
-                             r.equalsIgnoreCase(roleLower) ||
-                             r.equalsIgnoreCase(role.replace("ROLE_", "")));
-    }
-
     public static boolean isAdmin(Jwt jwt) {
         List<String> roles = getRoles(jwt);
         return roles.stream().anyMatch(r -> r.equalsIgnoreCase(ADMIN_ROLE));
@@ -94,10 +81,6 @@ public class RoleUtil {
 
     public static boolean canUpload(Jwt jwt) {
         return isAdmin(jwt) || isTeacher(jwt);
-    }
-
-    public static boolean canDelete(Jwt jwt) {
-        return isAdmin(jwt);
     }
 
     public static boolean canView(Jwt jwt) {
