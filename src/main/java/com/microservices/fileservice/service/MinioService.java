@@ -42,8 +42,15 @@ public class MinioService {
             InsufficientDataException, ErrorResponseException, NoSuchAlgorithmException, 
             InvalidKeyException, InvalidResponseException, XmlParserException, 
             InternalException {
-        
-        String objectName = ObjectNameSanitizer.toStorageKey(file.getOriginalFilename());
+        return uploadFile(file, null);
+    }
+
+    public String uploadFile(MultipartFile file, String folderPrefix) throws IOException, ServerException,
+            InsufficientDataException, ErrorResponseException, NoSuchAlgorithmException,
+            InvalidKeyException, InvalidResponseException, XmlParserException,
+            InternalException {
+
+        String objectName = ObjectNameSanitizer.toStorageKey(file.getOriginalFilename(), folderPrefix);
         
         minioClient.putObject(PutObjectArgs.builder()
                 .bucket(minioConfig.getBucketName())

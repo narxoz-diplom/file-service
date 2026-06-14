@@ -43,6 +43,15 @@ public class FileUploadService {
     }
 
     @Transactional
+    public FileEntity uploadAvatar(MultipartFile file, String userId) throws IOException {
+        validateNewsImage(file);
+        String folderPrefix = "avatars/" + userId;
+        FileEntity saved = persistUpload(file, userId, true, null, null, null, folderPrefix);
+        log.info("Avatar uploaded for user {}: {}", userId, saved.getObjectName());
+        return saved;
+    }
+
+    @Transactional
     public FileEntity uploadFileToLesson(MultipartFile file, String userId, Long lessonId) throws IOException {
         log.info("Uploading file: {} for lesson: {} by user: {}", file.getOriginalFilename(), lessonId, userId);
         FileEntity saved = persistUpload(file, userId, false, lessonId, null, null);
@@ -70,8 +79,20 @@ public class FileUploadService {
             Long courseId,
             String ragCollectionName
     ) throws IOException {
-        String objectName = uploadToMinio(file);
-        return fileRepository.save(fileMapper.fromUploadContext(FileUploadContext.builder()
+        return persistUpload(file, userId, isPublic, lessonId, courseId, ragCollectionName, null);
+    }
+
+    private FileEntity persistUpload(
+            MultipartFile file,
+            String userId,
+            boolean isPublic,
+            Long lessonId,
+            Long courseId,
+            String ragCollectionName,
+            String folderPrefix
+    ) throws IOException {
+        String objectName = uploadToMinio(file, folderPrefix);
+        FileEntity entity = fileMapper.fromUploadContext(FileUploadContext.builder()
                 .originalFileName(file.getOriginalFilename())
                 .contentType(file.getContentType())
                 .fileSize(file.getSize())
@@ -81,12 +102,18 @@ public class FileUploadService {
                 .lessonId(lessonId)
                 .courseId(courseId)
                 .ragCollectionName(ragCollectionName)
-                .build()));
+                .build());
+        entity.setPublic(isPublic);
+        return fileRepository.save(entity);
     }
 
     private String uploadToMinio(MultipartFile file) throws IOException {
+        return uploadToMinio(file, null);
+    }
+
+    private String uploadToMinio(MultipartFile file, String folderPrefix) throws IOException {
         try {
-            return minioService.uploadFile(file);
+            return minioService.uploadFile(file, folderPrefix);
         } catch (Exception e) {
             log.error("Error uploading file to MinIO", e);
             throw new FileStorageException("Failed to upload file to storage", e);

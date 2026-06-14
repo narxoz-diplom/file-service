@@ -39,6 +39,13 @@ public class FileController {
         return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadPublicNewsImage(file, jwt));
     }
 
+    @PostMapping("/upload-avatar")
+    public ResponseEntity<FileResponseDto> uploadAvatar(
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadAvatar(file, jwt));
+    }
+
     @PostMapping("/course/{courseId}/ingest-url")
     public ResponseEntity<FileResponseDto> ingestUrlToCourse(
             @PathVariable Long courseId,

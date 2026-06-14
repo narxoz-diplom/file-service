@@ -24,6 +24,7 @@ public interface FileMapper {
     @Mapping(target = "fileName", source = "originalFileName")
     @Mapping(target = "uploadedAt", expression = "java(LocalDateTime.now())")
     @Mapping(target = "status", expression = "java(FileStatus.UPLOADED)")
+    @Mapping(target = "public", source = "isPublic")
     FileEntity fromUploadContext(FileUploadContext context);
 
     default VideoUploadResponseDto toVideoUploadResponse(String objectName, MultipartFile file) {

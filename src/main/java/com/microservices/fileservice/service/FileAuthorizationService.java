@@ -60,10 +60,15 @@ public class FileAuthorizationService {
     }
 
     public boolean canAccessInlineContent(Jwt jwt, FileEntity file) {
-        if (file.isPublic()) {
+        if (file.isPublic() || isAvatarObject(file)) {
             return true;
         }
         return jwt != null && RoleUtil.canView(jwt) && canAccessFile(jwt, file);
+    }
+
+    private static boolean isAvatarObject(FileEntity file) {
+        String objectName = file.getObjectName();
+        return objectName != null && objectName.startsWith("avatars/");
     }
 
     /**

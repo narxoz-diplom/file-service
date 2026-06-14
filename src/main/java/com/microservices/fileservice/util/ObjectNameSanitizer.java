@@ -20,6 +20,24 @@ public final class ObjectNameSanitizer {
         return UUID.randomUUID() + extractSafeExtension(originalFilename);
     }
 
+    public static String toStorageKey(String originalFilename, String folderPrefix) {
+        String key = toStorageKey(originalFilename);
+        if (folderPrefix == null || folderPrefix.isBlank()) {
+            return key;
+        }
+        String normalized = folderPrefix.replace('\\', '/').trim();
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.isBlank()) {
+            return key;
+        }
+        return normalized + "/" + key;
+    }
+
     static String extractSafeExtension(String originalFilename) {
         if (originalFilename == null || originalFilename.isBlank()) {
             return "";

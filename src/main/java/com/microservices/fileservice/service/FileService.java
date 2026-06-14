@@ -49,6 +49,11 @@ public class FileService {
         return fileMapper.toResponse(fileUploadService.uploadPublicNewsImage(file, jwt.getSubject()));
     }
 
+    public FileResponseDto uploadAvatar(MultipartFile file, Jwt jwt) throws Exception {
+        fileAuthorizationService.requireCanView(jwt);
+        return fileMapper.toResponse(fileUploadService.uploadAvatar(file, jwt.getSubject()));
+    }
+
     public FileResponseDto ingestUrlToCourse(String url, Jwt jwt, Long courseId) throws Exception {
         fileAuthorizationService.requireCanUpload(jwt);
         return fileMapper.toResponse(urlIngestService.ingestUrlToCourse(url, jwt.getSubject(), courseId));
