@@ -1,7 +1,10 @@
 package com.microservices.fileservice.service;
 
+import com.microservices.fileservice.dto.FileUploadContext;
 import com.microservices.fileservice.dto.VideoUploadResponseDto;
 import com.microservices.fileservice.mapper.FileMapper;
+import com.microservices.fileservice.model.FileEntity;
+import com.microservices.fileservice.repository.FileRepository;
 import com.microservices.fileservice.util.ContentTypeResolver;
 import io.minio.StatObjectResponse;
 import lombok.RequiredArgsConstructor;
@@ -24,10 +27,21 @@ public class VideoStreamingService {
     private final MinioService minioService;
     private final FileMapper fileMapper;
     private final RagSyncService ragSyncService;
+    private final FileRepository fileRepository;
 
-    public VideoUploadResponseDto uploadVideo(MultipartFile file, Long lessonId) throws Exception {
+    public VideoUploadResponseDto uploadVideo(MultipartFile file, Long lessonId, String userId) throws Exception {
         String objectName = minioService.uploadFile(file);
         ragSyncService.ingestVideoSafely(file, lessonId);
+        fileRepository.save(fileMapper.fromUploadContext(FileUploadContext.builder()
+                .originalFileName(file.getOriginalFilename() != null ? file.getOriginalFilename() : "video")
+                .contentType(file.getContentType() != null ? file.getContentType() : "video/mp4")
+                .fileSize(file.getSize())
+                .objectName(objectName)
+                .userId(userId)
+                .isPublic(false)
+                .lessonId(lessonId)
+                .ragCollectionName(lessonId != null ? "lesson_" + lessonId : null)
+                .build()));
         return fileMapper.toVideoUploadResponse(objectName, file);
     }
 

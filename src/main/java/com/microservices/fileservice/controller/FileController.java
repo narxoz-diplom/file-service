@@ -145,7 +145,8 @@ public class FileController {
     @GetMapping("/videos/{objectName}/stream")
     public ResponseEntity<InputStreamResource> streamVideo(
             @PathVariable String objectName,
-            @RequestHeader(value = "Range", required = false) String rangeHeader) throws Exception {
-        return fileService.streamVideo(objectName, rangeHeader);
+            @RequestHeader(value = "Range", required = false) String rangeHeader,
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return fileService.streamVideo(objectName, rangeHeader, jwt);
     }
 }

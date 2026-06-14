@@ -150,11 +150,29 @@ public class FileService {
 
     public VideoUploadResponseDto uploadVideo(MultipartFile file, Long lessonId, Jwt jwt) throws Exception {
         fileAuthorizationService.requireCanUpload(jwt);
-        return videoStreamingService.uploadVideo(file, lessonId);
+        return videoStreamingService.uploadVideo(file, lessonId, jwt.getSubject());
     }
 
-    public ResponseEntity<InputStreamResource> streamVideo(String objectName, String rangeHeader) throws Exception {
+    public ResponseEntity<InputStreamResource> streamVideo(String objectName, String rangeHeader, Jwt jwt) throws Exception {
+        fileAuthorizationService.requireCanView(jwt);
+        FileEntity file = fileRepository.findByObjectName(decodeObjectName(objectName))
+                .orElseThrow(() -> new FileNotFoundException("Video not found: " + objectName));
+        if (!fileAuthorizationService.canAccessInlineContent(jwt, file)) {
+            throw new org.springframework.security.access.AccessDeniedException("Access denied");
+        }
         return videoStreamingService.streamVideo(objectName, rangeHeader);
+    }
+
+    private static String decodeObjectName(String objectName) {
+        try {
+            String decoded = java.net.URLDecoder.decode(objectName, java.nio.charset.StandardCharsets.UTF_8);
+            if (!decoded.equals(objectName) && !decoded.contains("%")) {
+                return decoded;
+            }
+        } catch (Exception ignored) {
+            // use original
+        }
+        return objectName;
     }
 
     private FileEntity getEntityById(Long id) {
