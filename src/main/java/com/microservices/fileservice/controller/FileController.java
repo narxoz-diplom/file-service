@@ -149,11 +149,46 @@ public class FileController {
         return ResponseEntity.status(HttpStatus.CREATED).body(fileService.uploadVideo(file, lessonId, jwt));
     }
 
-    @GetMapping("/videos/{objectName}/stream")
-    public ResponseEntity<InputStreamResource> streamVideo(
-            @PathVariable String objectName,
+    @GetMapping("/videos/stream")
+    public ResponseEntity<InputStreamResource> streamVideoByQuery(
+            @RequestParam("objectName") String objectName,
             @RequestHeader(value = "Range", required = false) String rangeHeader,
             @AuthenticationPrincipal Jwt jwt) throws Exception {
         return fileService.streamVideo(objectName, rangeHeader, jwt);
+    }
+
+    @GetMapping("/videos/{objectName}/stream")
+    public ResponseEntity<InputStreamResource> streamVideoByLegacyPath(
+            @PathVariable("objectName") String objectName,
+            @RequestHeader(value = "Range", required = false) String rangeHeader,
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return fileService.streamVideo(decodePathSegment(objectName), rangeHeader, jwt);
+    }
+
+    @GetMapping("/videos/stream/{*objectName}")
+    public ResponseEntity<InputStreamResource> streamVideoByPath(
+            @PathVariable("objectName") String objectName,
+            @RequestHeader(value = "Range", required = false) String rangeHeader,
+            @AuthenticationPrincipal Jwt jwt) throws Exception {
+        return fileService.streamVideo(normalizeWildcardObjectName(objectName), rangeHeader, jwt);
+    }
+
+    private static String decodePathSegment(String objectName) {
+        if (objectName == null || objectName.isBlank()) {
+            return objectName;
+        }
+        try {
+            return java.net.URLDecoder.decode(objectName, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception ignored) {
+            return objectName;
+        }
+    }
+
+    private static String normalizeWildcardObjectName(String objectName) {
+        if (objectName == null || objectName.isBlank()) {
+            return objectName;
+        }
+        String normalized = objectName.startsWith("/") ? objectName.substring(1) : objectName;
+        return decodePathSegment(normalized);
     }
 }

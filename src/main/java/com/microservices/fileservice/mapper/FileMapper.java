@@ -8,6 +8,8 @@ import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -28,9 +30,10 @@ public interface FileMapper {
     FileEntity fromUploadContext(FileUploadContext context);
 
     default VideoUploadResponseDto toVideoUploadResponse(String objectName, MultipartFile file) {
+        String encodedObjectName = URLEncoder.encode(objectName, StandardCharsets.UTF_8);
         return VideoUploadResponseDto.builder()
                 .objectName(objectName)
-                .videoUrl("/api/files/videos/" + objectName + "/stream")
+                .videoUrl("/api/files/videos/stream?objectName=" + encodedObjectName)
                 .fileSize(file.getSize())
                 .contentType(file.getContentType())
                 .originalFileName(file.getOriginalFilename())

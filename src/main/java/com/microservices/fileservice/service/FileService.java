@@ -160,12 +160,20 @@ public class FileService {
 
     public ResponseEntity<InputStreamResource> streamVideo(String objectName, String rangeHeader, Jwt jwt) throws Exception {
         fileAuthorizationService.requireCanView(jwt);
-        FileEntity file = fileRepository.findByObjectName(decodeObjectName(objectName))
-                .orElseThrow(() -> new FileNotFoundException("Video not found: " + objectName));
-        if (!fileAuthorizationService.canAccessInlineContent(jwt, file)) {
-            throw new org.springframework.security.access.AccessDeniedException("Access denied");
+        String decodedObjectName = decodeObjectName(objectName);
+        var fileOpt = fileRepository.findByObjectName(decodedObjectName)
+                .or(() -> fileRepository.findByObjectName(objectName));
+        if (fileOpt.isPresent()) {
+            FileEntity file = fileOpt.get();
+            if (!fileAuthorizationService.canAccessInlineContent(jwt, file)) {
+                throw new org.springframework.security.access.AccessDeniedException("Access denied");
+            }
+        } else if (!videoStreamingService.storageObjectExists(decodedObjectName)) {
+            throw new FileNotFoundException("Video not found: " + decodedObjectName);
+        } else {
+            log.warn("Streaming video {} from storage without files metadata row", decodedObjectName);
         }
-        return videoStreamingService.streamVideo(objectName, rangeHeader);
+        return videoStreamingService.streamVideo(decodedObjectName, rangeHeader);
     }
 
     private static String decodeObjectName(String objectName) {

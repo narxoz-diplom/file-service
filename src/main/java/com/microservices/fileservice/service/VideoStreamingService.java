@@ -31,7 +31,6 @@ public class VideoStreamingService {
 
     public VideoUploadResponseDto uploadVideo(MultipartFile file, Long lessonId, String userId) throws Exception {
         String objectName = minioService.uploadFile(file);
-        ragSyncService.ingestVideoSafely(file, lessonId);
         fileRepository.save(fileMapper.fromUploadContext(FileUploadContext.builder()
                 .originalFileName(file.getOriginalFilename() != null ? file.getOriginalFilename() : "video")
                 .contentType(file.getContentType() != null ? file.getContentType() : "video/mp4")
@@ -42,7 +41,21 @@ public class VideoStreamingService {
                 .lessonId(lessonId)
                 .ragCollectionName(lessonId != null ? "lesson_" + lessonId : null)
                 .build()));
+        try {
+            ragSyncService.ingestVideoSafely(file, lessonId);
+        } catch (Exception e) {
+            log.warn("RAG ingest failed for uploaded video {} (lesson {})", objectName, lessonId, e);
+        }
         return fileMapper.toVideoUploadResponse(objectName, file);
+    }
+
+    public boolean storageObjectExists(String objectName) {
+        try {
+            minioService.getFileInfo(decodeObjectName(objectName));
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public ResponseEntity<InputStreamResource> streamVideo(String objectName, String rangeHeader) throws Exception {
